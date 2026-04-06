@@ -1,0 +1,24 @@
+[package]
+name = "authentication"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+argon2 = "0.5.3"
+async-trait = "0.1.89"
+axum = { version = "0.8.8", features = ["http2", "macros", "ws", "multipart"] }
+axum-extra = { version = "0.12.5", features = ["cookie"] }
+chrono = { version = "0.4.44", features = ["serde"] }
+dotenv = "0.15.0"
+jsonwebtoken = "10.3.0"
+lettre = "0.11.21"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+sqlx = { version = "0.8.6", features = ["chrono", "postgres", "runtime-async-std-native-tls", "uuid"] }
+time = "0.3.47"
+tokio = { version = "1.51.0", features = ["full"] }
+tower = "0.5.3"
+tower-http = { version = "0.6.8", features = ["cors", "trace"] }
+tracing-subscriber = "0.3.23"
+uuid = { version = "1.23.0", features = ["serde", "v4"] }
+validator = { version = "0.20.0", features = ["derive"] }

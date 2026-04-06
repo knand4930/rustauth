@@ -1,0 +1,72 @@
+# =========================
+# Rust / Cargo
+# =========================
+/target/
+Cargo.lock
+
+# Keep Cargo.lock for binaries, remove above line if building an app
+#! Cargo.lock
+
+# =========================
+# Environment Variables
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
+# Logs
+# =========================
+*.log
+logs/
+
+# =========================
+# OS Files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# IDE / Editor
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# =========================
+# Build / Temp
+# =========================
+dist/
+build/
+tmp/
+temp/
+
+# =========================
+# Database / Local files
+# =========================
+*.sqlite
+*.db
+
+# =========================
+# Coverage / Testing
+# =========================
+coverage/
+*.profraw
+*.profdata
+
+# =========================
+# Docker
+# =========================
+.docker/
+docker-compose.override.yml
+
+# =========================
+# Secrets / Keys
+# =========================
+*.pem
+*.key
+*.crt
+secrets/
+
+.idea
