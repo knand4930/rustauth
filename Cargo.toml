@@ -4,21 +4,34 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+anyhow = "1.0.102"
 argon2 = "0.5.3"
 async-trait = "0.1.89"
 axum = { version = "0.8.8", features = ["http2", "macros", "ws", "multipart"] }
 axum-extra = { version = "0.12.5", features = ["cookie"] }
 chrono = { version = "0.4.44", features = ["serde"] }
+config = "0.15.22"
+deadpool-diesel = "0.6.1"
+diesel = { version = "2.3.7", features = ["postgres", "uuid", "chrono", "serde_json", "r2d2"] }
+diesel-async = { version = "0.8.0", features = ["postgres", "deadpool"] }
+diesel_migrations = "2.3.1"
 dotenv = "0.15.0"
 jsonwebtoken = "10.3.0"
 lettre = "0.11.21"
+rand = "0.10.0"
+redis = { version = "1.2.0", features = ["tokio-comp"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 sqlx = { version = "0.8.6", features = ["chrono", "postgres", "runtime-async-std-native-tls", "uuid"] }
+thiserror = "2.0.18"
 time = "0.3.47"
 tokio = { version = "1.51.0", features = ["full"] }
+tokio-cron-scheduler = "0.15.1"
 tower = "0.5.3"
-tower-http = { version = "0.6.8", features = ["cors", "trace"] }
+tower-http = { version = "0.6.8", features = ["cors", "limit", "trace"] }
+tracing = "0.1.44"
 tracing-subscriber = "0.3.23"
-uuid = { version = "1.23.0", features = ["serde", "v4"] }
+utoipa = "5.4.0"
+utoipa-swagger-ui = "9.0.2"
+uuid = { version = "1.23.0", features = ["fast-rng", "serde", "v4"] }
 validator = { version = "0.20.0", features = ["derive"] }

@@ -1,0 +1,29 @@
+# For documentation on how to configure this file,
+# see https://diesel.rs/guides/configuring-diesel-cli
+
+[print_schema]
+custom_type_derives = ["diesel::query_builder::QueryId", "Clone"]
+allow_tables_to_appear_in_same_query_config = "fk_related_tables"
+
+[print_schema.auth]
+file = "src/user/schemas.rs"
+schema = "auth"
+with_docs = false
+
+[print_schema.blog]
+file = "src/blogs/schemas.rs"
+schema = "blog"
+with_docs = false
+
+[print_schema.activity]
+file = "src/activitylog/schemas.rs"
+schema = "activity"
+with_docs = false
+
+[migrations_directory]
+dir = "migrations"
+
+[print_schema.products]
+file = "src/products/schemas.rs"
+schema = "products"
+with_docs = false

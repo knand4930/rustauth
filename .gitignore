@@ -47,6 +47,8 @@ temp/
 # =========================
 *.sqlite
 *.db
+.apps.json
+migrations/.schema_state.json
 
 # =========================
 # Coverage / Testing

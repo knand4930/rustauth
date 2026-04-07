@@ -1,0 +1,34 @@
+[alias]
+# ── App scaffolding ───────────────────────────────────────────────────────────
+#
+#   cargo startapp <name>                   scaffold a new app + wire everything
+#   cargo startapp <name> --schema <pg>     same with a custom postgres schema name
+
+startapp       = ["run", "--bin", "startapp",       "--"]
+
+# ── Migrations (Django / Alembic-style) ───────────────────────────────────────
+#
+#   cargo makemigrations                    detect model changes → generate SQL files
+#   cargo makemigrations <label>            same with a custom label
+#
+#   cargo migrate                           apply all pending migrations
+#   cargo migrate status                    show applied / pending list
+#   cargo migrate --fake-initial            mark first migration applied (no SQL)
+#   cargo migrate <name>                    move DB to that exact migration state
+#   cargo migrate <name> --fake             mark migration applied without SQL
+#
+#   cargo showmigrations                    list all migrations with status
+
+makemigrations = ["run", "--bin", "makemigrations", "--"]
+migrate        = ["run", "--bin", "migrate",        "--"]
+showmigrations = ["run", "--bin", "showmigrations", "--"]
+
+# ── Database shells ───────────────────────────────────────────────────────────
+#
+#   cargo dbshell                           native psql session (full tab-completion)
+#   cargo shell                             interactive SQL REPL with table output
+#                                           built-ins: \tables  \d <table>  \schema
+#                                                      \count   \indexes   \migrations
+
+dbshell        = ["run", "--bin", "dbshell",        "--"]
+shell          = ["run", "--bin", "shell",          "--"]
