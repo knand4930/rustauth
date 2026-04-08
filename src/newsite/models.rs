@@ -1,4 +1,4 @@
-// src/products/models.rs
+// src/newsite/models.rs
 //
 // Add your structs here. Each public struct becomes a DB table.
 // Run `cargo makemigrations` to generate the migration, then `cargo migrate`.
@@ -19,14 +19,12 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// Main model for the `products.products` table.
+/// Main model for the `newsite.newsites` table.
 /// Rename or add fields — then run `cargo makemigrations`.
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
-pub struct Products {
+pub struct Newsite {
     pub id:         Uuid,
-    /// @unique
     pub name:       String,
-    /// @index
     pub is_active:  bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,

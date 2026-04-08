@@ -9,6 +9,7 @@ mod schema;
 mod user;
 
 mod products;
+mod newsite;
 fn main() {
     println!("Hello, world!");
 }

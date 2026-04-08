@@ -11,10 +11,7 @@ axum = { version = "0.8.8", features = ["http2", "macros", "ws", "multipart"] }
 axum-extra = { version = "0.12.5", features = ["cookie"] }
 chrono = { version = "0.4.44", features = ["serde"] }
 config = "0.15.22"
-deadpool-diesel = "0.6.1"
-diesel = { version = "2.3.7", features = ["postgres", "uuid", "chrono", "serde_json", "r2d2"] }
-diesel-async = { version = "0.8.0", features = ["postgres", "deadpool"] }
-diesel_migrations = "2.3.1"
+
 dotenv = "0.15.0"
 jsonwebtoken = "10.3.0"
 lettre = "0.11.21"

@@ -10,3 +10,4 @@ pub use crate::user::models::{
     TokenBlacklist, User, UserRole, UserSession,
 };
 pub use crate::products::models::Products;
+pub use crate::newsite::models::Newsite;

@@ -35,6 +35,23 @@ fn migration_names() -> Result<Vec<String>> {
     Ok(entries.into_iter().map(|e| e.file_name().to_string_lossy().to_string()).collect())
 }
 
+fn get_migration_modules(sql: &str) -> Vec<String> {
+    let mut modules = std::collections::BTreeSet::new();
+    for line in sql.lines() {
+        let line = line.to_uppercase();
+        if let Some(idx) = line.find(" TABLE ") {
+            let rest = &line[idx+7..];
+            if let Some(dot) = rest.find('.') {
+                let schema = rest[..dot].trim().to_lowercase();
+                if schema != "public" && schema != "if" && schema != "exists" {
+                    modules.insert(schema);
+                }
+            }
+        }
+    }
+    modules.into_iter().collect()
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenv().ok();
@@ -80,17 +97,40 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let mut applied_count = 0usize;
+    let mut by_module: std::collections::BTreeMap<String, Vec<&String>> = std::collections::BTreeMap::new();
     for name in &names {
-        if let Some(ts) = ts_map.get(name) {
-            applied_count += 1;
-            let ts_str = ts.format("%Y-%m-%d %H:%M UTC").to_string();
-            println!("  {GRN}[✓]{RST}  {BLD}{name}{RST}");
-            println!("       {DIM}applied {ts_str}{RST}");
+        let sql = fs::read_to_string(migrations_dir().join(name).join("up.sql")).unwrap_or_default();
+        let modules = get_migration_modules(&sql);
+        if modules.is_empty() {
+            by_module.entry("global".to_string()).or_default().push(name);
         } else {
-            println!("  {YLW}[ ]{RST}  {name}  {YLW}← pending{RST}");
+            for md in modules {
+                by_module.entry(md).or_default().push(name);
+            }
+        }
+    }
+
+    let mut applied_count = 0usize;
+    for (module, module_names) in by_module {
+        println!("{BLD}{}{RST}", module);
+        for name in module_names {
+            if let Some(ts) = ts_map.get(name) {
+                if !module.is_empty() { // prevent double counting if multiple modules touch same name? actually applied_count isn't fully accurate if duped, but we'll collect a unique set.
+                }
+                let ts_str = ts.format("%Y-%m-%d %H:%M UTC").to_string();
+                println!("  {GRN}[X]{RST}  {}  {DIM}applied {}{RST}", name, ts_str);
+            } else {
+                println!("  {YLW}[ ]{RST}  {}", name);
+            }
         }
         println!();
+    }
+
+    // accurate count
+    for name in &names {
+        if ts_map.contains_key(name) {
+            applied_count += 1;
+        }
     }
 
     let pending = names.len() - applied_count;

@@ -345,6 +345,46 @@ async fn cmd_target(pool: &PgPool, target: &str, fake: bool) -> Result<()> {
     Ok(())
 }
 
+/// Fake apply all pending migrations for a specific module.
+async fn cmd_target_module(pool: &PgPool, module: &str) -> Result<()> {
+    ensure_history_table(pool).await?;
+    let names   = migration_names()?;
+    let applied = applied_set(pool).await?;
+
+    let mut matched_migrations = vec![];
+
+    for name in &names {
+        if applied.contains(name) { continue; }
+        let up_path = migrations_dir().join(name).join("up.sql");
+        if let Ok(sql) = fs::read_to_string(&up_path) {
+            let sql_upper = sql.to_uppercase();
+            let module_upper = module.to_uppercase();
+            if sql_upper.contains(&format!("TABLE {module_upper}.")) 
+                || sql_upper.contains(&format!("SCHEMA {module_upper}"))
+                || sql_upper.contains(&format!("INDEX IDX_{module_upper}_"))
+                || sql_upper.contains(&format!("TABLE IF EXISTS {module_upper}.")) {
+                matched_migrations.push(name.clone());
+            }
+        }
+    }
+
+    if matched_migrations.is_empty() {
+        // Not a module or no pending migrations
+        return Err(anyhow::anyhow!("Migration or module '{module}' not found or no pending migrations for it."));
+    }
+
+    println!("\n{BLD}Targeting Module:{RST} {module}");
+    println!("Faking {} pending migration(s) for module...\n", matched_migrations.len());
+
+    for name in matched_migrations {
+        println!("  {YLW}⊘{RST}  {BLD}{name}{RST}  {DIM}(faked — SQL not executed){RST}");
+        mark_applied(pool, &name).await?;
+    }
+
+    println!("\n{GRN}{BLD}✓  Module '{module}' migrations faked.{RST}\n");
+    Ok(())
+}
+
 /// Show applied/pending status inline (same output as showmigrations).
 async fn cmd_status(pool: &PgPool) -> Result<()> {
     ensure_history_table(pool).await?;
@@ -409,9 +449,17 @@ async fn main() -> Result<()> {
         (Some("status"), _)               => cmd_status(&pool).await?,
         // cargo migrate --fake-initial
         (Some("--fake-initial"), _)        => cmd_fake_initial(&pool).await?,
-        // cargo migrate <name> --fake
+        // cargo migrate <name_or_module> --fake
         (Some(name), Some("--fake"))
-            if !name.starts_with("--")   => cmd_target(&pool, name, true).await?,
+            if !name.starts_with("--") => {
+                if let Err(e) = cmd_target(&pool, name, true).await {
+                    // fallback to module fake
+                    if let Err(_) = cmd_target_module(&pool, name).await {
+                        eprintln!("{RED}Error:{RST} {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            },
         // cargo migrate <name>
         (Some(name), _)
             if !name.starts_with("--")   => cmd_target(&pool, name, false).await?,

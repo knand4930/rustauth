@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS products.idx_products_is_active;

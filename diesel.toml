@@ -27,3 +27,8 @@ dir = "migrations"
 file = "src/products/schemas.rs"
 schema = "products"
 with_docs = false
+
+[print_schema.newsite]
+file = "src/newsite/schemas.rs"
+schema = "newsite"
+with_docs = false

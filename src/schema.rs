@@ -13,3 +13,7 @@ pub mod blog {
 pub mod products {
     include!("products/schemas.rs");
 }
+
+pub mod newsite {
+    include!("newsite/schemas.rs");
+}

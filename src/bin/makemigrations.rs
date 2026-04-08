@@ -15,14 +15,38 @@ use std::path::{Path, PathBuf};
 
 const MANIFEST_DIR: &str = env!("CARGO_MANIFEST_DIR");
 
-/// Model files to scan.  (relative-to-src path, postgres schema)
-/// Add entries here when you create new model files.
-const MODEL_FILES: &[(&str, &str)] = &[
-    ("user/models.rs",         "auth"),
-    ("blogs/models.rs",        "blog"),
-    ("activitylog/models.rs",  "activity"),
-    ("products/models.rs",  "products"),
-];
+// We no longer use a hardcoded MODEL_FILES. It will be discovered dynamically via src/models/mod.rs
+
+fn discover_models(src_dir: &Path) -> Result<Vec<(String, String)>> {
+    let mod_rs = src_dir.join("models").join("mod.rs");
+    if !mod_rs.exists() {
+        return Ok(vec![]);
+    }
+    let content = fs::read_to_string(&mod_rs)?;
+    ("newsite/models.rs",  "newsite"),
+    let mut files = vec![];
+    for line in content.lines() {
+        let line = line.trim();
+        if line.starts_with("pub use crate::") && line.contains("::models") {
+            let parts: Vec<&str> = line.split("::").collect();
+            if parts.len() >= 3 {
+                let module = parts[1];
+                let path = format!("{}/models.rs", module);
+                files.push((path, module.to_string()));
+            }
+        }
+    }
+    
+    let mut unique_files = vec![];
+    let mut seen = std::collections::HashSet::new();
+    for entry in files {
+        if !seen.contains(&entry.0) {
+            seen.insert(entry.0.clone());
+            unique_files.push(entry);
+        }
+    }
+    Ok(unique_files)
+}
 
 // ── ANSI colours ──────────────────────────────────────────────────────────────
 const RST: &str = "\x1b[0m";
@@ -39,11 +63,13 @@ const MAG: &str = "\x1b[35m";
 
 #[derive(Debug, Clone)]
 struct ParsedField {
-    name:     String,
-    sql_type: String,
-    nullable: bool,
-    is_pk:    bool,
-    line:     usize, // 1-based line in source file
+    name:       String,
+    sql_type:   String,
+    nullable:   bool,
+    is_pk:      bool,
+    is_unique:  bool,
+    is_index:   bool,
+    line:       usize, // 1-based line in source file
 }
 
 #[derive(Debug, Clone)]
@@ -79,10 +105,12 @@ struct Issue {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ColState {
-    name:     String,
-    sql_type: String,
-    nullable: bool,
-    is_pk:    bool,
+    name:      String,
+    sql_type:  String,
+    nullable:  bool,
+    is_pk:     bool,
+    is_unique: bool,
+    is_index:  bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -165,10 +193,21 @@ fn resolve_fk(field: &str, sql_type: &str, reg: &HashMap<String, String>) -> Opt
 
 // ── Parser ────────────────────────────────────────────────────────────────────
 
-fn parse_model_file(path: &Path, schema: &str) -> Result<(Vec<ParsedTable>, Vec<Issue>)> {
+fn parse_model_file(path: &Path, default_schema: &str) -> Result<(Vec<ParsedTable>, Vec<Issue>)> {
     let src = fs::read_to_string(path)
         .with_context(|| format!("Cannot read {}", path.display()))?;
-    Ok(parse_structs(&src, schema, &path.to_string_lossy()))
+    
+    let mut actual_schema = default_schema.to_string();
+    for line in src.lines() {
+        if line.contains("@schema ") {
+            if let Some(idx) = line.find("@schema ") {
+                actual_schema = line[idx + 8..].trim().to_string();
+                break;
+            }
+        }
+    }
+    
+    Ok(parse_structs(&src, &actual_schema, &path.to_string_lossy()))
 }
 
 fn parse_structs(src: &str, schema: &str, file: &str) -> (Vec<ParsedTable>, Vec<Issue>) {
@@ -248,13 +287,28 @@ fn parse_structs(src: &str, schema: &str, file: &str) -> (Vec<ParsedTable>, Vec<
         // Parse fields
         let mut fields: Vec<ParsedField> = vec![];
         let mut seen_fields: HashMap<String, usize> = HashMap::new();
+        let mut pending_unique = false;
+        let mut pending_index = false;
 
         for &(line_num, raw) in &body {
+            let t = raw.trim();
+            if t.starts_with("//") {
+                if t.contains("@unique") { pending_unique = true; }
+                if t.contains("@index") { pending_index = true; }
+                continue;
+            }
+            
             let l = {
-                let t = raw.trim();
                 t.find("//").map(|idx| &t[..idx]).unwrap_or(t).trim()
             };
-            if !l.starts_with("pub ") { continue; }
+            if !l.starts_with("pub ") {
+                // reset flags if it's not an attribute
+                if !l.is_empty() && !l.starts_with("#[") {
+                    pending_unique = false;
+                    pending_index = false;
+                }
+                continue; 
+            }
             let rest = l["pub ".len()..].trim_start();
             let Some(colon) = rest.find(':') else { continue };
 
@@ -298,9 +352,14 @@ fn parse_structs(src: &str, schema: &str, file: &str) -> (Vec<ParsedTable>, Vec<
             }
 
             let is_pk = fname == "id";
+            let is_unique = pending_unique;
+            let is_index = pending_index;
+            pending_unique = false;
+            pending_index = false;
+            
             fields.push(ParsedField {
                 name: fname, sql_type: sql_type.to_string(),
-                nullable, is_pk, line: line_num,
+                nullable, is_pk, is_unique, is_index, line: line_num,
             });
         }
 
@@ -398,6 +457,7 @@ fn col_sql(f: &ParsedField, reg: &HashMap<String, String>) -> String {
     }
     let mut parts = vec![f.name.clone(), f.sql_type.clone()];
     if !f.nullable { parts.push("NOT NULL".to_string()); }
+    if f.is_unique { parts.push("UNIQUE".to_string()); }
     if matches!(f.name.as_str(), "created_at" | "updated_at") {
         parts.push("DEFAULT NOW()".to_string());
     }
@@ -446,6 +506,12 @@ fn compute_diff(tables: &[ParsedTable], prev: &SchemaState, reg: &HashMap<String
                     ));
                 }
                 up.push(create_table_sql(t, reg));
+                for f in &t.fields {
+                    if f.is_index {
+                        up.push(format!("CREATE INDEX IF NOT EXISTS idx_{tbl}_{col} ON {key} ({col});", tbl=t.table, col=f.name, key=key));
+                        down.push(format!("DROP INDEX IF EXISTS {schema}.idx_{tbl}_{col};", schema=t.schema, tbl=t.table, col=f.name));
+                    }
+                }
                 down.push(format!("DROP TABLE IF EXISTS {}.{} CASCADE;", t.schema, t.table));
             }
 
@@ -477,17 +543,29 @@ fn compute_diff(tables: &[ParsedTable], prev: &SchemaState, reg: &HashMap<String
                                 "ALTER TABLE {key} DROP COLUMN IF EXISTS {};", f.name
                             ));
                         }
-                        // Type change
-                        Some(pc) if pc.sql_type != f.sql_type => {
-                            print_header(&mut summary);
-                            summary.push(format!(
-                                "    {YLW}~{RST} {BLD}{:<22}{RST} {} → {}  {YLW}⚠ type change{RST}",
-                                f.name, pc.sql_type, f.sql_type
-                            ));
-                            up.push(format!(
-                                "ALTER TABLE {key} ALTER COLUMN {col} TYPE {ty} USING {col}::{ty};",
-                                col = f.name, ty = f.sql_type,
-                            ));
+                        Some(pc) => {
+                            if pc.sql_type != f.sql_type {
+                                print_header(&mut summary);
+                                summary.push(format!(
+                                    "    {YLW}~{RST} {BLD}{:<22}{RST} {} → {}  {YLW}⚠ type change{RST}",
+                                    f.name, pc.sql_type, f.sql_type
+                                ));
+                                up.push(format!(
+                                    "ALTER TABLE {key} ALTER COLUMN {col} TYPE {ty} USING {col}::{ty};",
+                                    col = f.name, ty = f.sql_type,
+                                ));
+                            }
+                            if !pc.is_unique && f.is_unique {
+                                print_header(&mut summary);
+                                summary.push(format!("    {YLW}~{RST} {BLD}{:<22}{RST}  {DIM}+unique{RST}", f.name));
+                                up.push(format!("ALTER TABLE {key} ADD UNIQUE ({col});", col=f.name));
+                            }
+                            if !pc.is_index && f.is_index {
+                                print_header(&mut summary);
+                                summary.push(format!("    {YLW}~{RST} {BLD}{:<22}{RST}  {DIM}+index{RST}", f.name));
+                                up.push(format!("CREATE INDEX IF NOT EXISTS idx_{tbl}_{col} ON {key} ({col});", tbl=t.table, col=f.name, key=key));
+                                down.push(format!("DROP INDEX IF EXISTS {schema}.idx_{tbl}_{col};", schema=t.schema, tbl=t.table, col=f.name));
+                            }
                         }
                         _ => {}
                     }
@@ -541,6 +619,8 @@ fn save_state(tables: &[ParsedTable]) -> Result<()> {
                 sql_type: f.sql_type.clone(),
                 nullable: f.nullable,
                 is_pk:    f.is_pk,
+                is_unique: f.is_unique,
+                is_index:  f.is_index,
             }).collect(),
         });
     }
@@ -586,13 +666,21 @@ fn main() -> Result<()> {
     let mut all_tables: Vec<ParsedTable> = vec![];
     let mut all_issues: Vec<Issue>       = vec![];
 
-    for &(rel, schema) in MODEL_FILES {
-        let path = src_dir.join(rel);
+    let model_files = match discover_models(&src_dir) {
+        Ok(files) => files,
+        Err(e) => {
+            println!("{RED}Failed to discover models: {e}{RST}");
+            std::process::exit(1);
+        }
+    };
+
+    for (rel, schema) in model_files {
+        let path = src_dir.join(&rel);
         if !path.exists() {
             println!("  {DIM}[skip]{RST} {rel}");
             continue;
         }
-        let (tables, issues) = parse_model_file(&path, schema)?;
+        let (tables, issues) = parse_model_file(&path, &schema)?;
         println!(
             "  {GRN}✓{RST}  {BLD}{rel:<32}{RST}  {} struct(s)   {DIM}schema: {MAG}{schema}{RST}",
             tables.len()
