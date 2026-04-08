@@ -9,5 +9,4 @@ pub use crate::user::models::{
     AccessToken, PasswordResetToken, Permission, RefreshToken, Role, RolePermission,
     TokenBlacklist, User, UserRole, UserSession,
 };
-pub use crate::products::models::Products;
-pub use crate::newsite::models::Newsite;
+

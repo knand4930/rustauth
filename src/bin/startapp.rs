@@ -9,16 +9,13 @@
 // What it creates:
 //   src/<appname>/
 //       mod.rs       — module declarations
-//       models.rs    — starter Rust structs (sqlx::FromRow)
+//       models.rs    — database model structs (sqlx::FromRow)
+//       schema.rs    — request/response DTOs (data contracts)
 //       handler.rs   — axum route handlers (CRUD stubs)
-//       schemas.rs   — Diesel/DB schema (empty, filled by makemigrations)
 //
 // What it patches automatically:
 //   src/main.rs              — add `mod <appname>;`
 //   src/models/mod.rs        — re-export structs
-//   src/schema.rs            — add schema include block
-//   diesel.toml              — add [print_schema.<pgschema>] section
-//   src/bin/makemigrations.rs — add to MODEL_FILES registry
 //   .apps.json               — internal app registry (created if missing)
 
 use anyhow::{bail, Context, Result};
@@ -93,20 +90,35 @@ fn gen_mod_rs(app: &str) -> String {
 
 pub mod handler;
 pub mod models;
-pub mod schemas;
-"
+pub mod schema;
+
+use axum::{{routing::{{delete, get, post, put}}, Router}};
+use sqlx::PgPool;
+
+/// Build the {app} routes.
+pub fn routes() -> Router<PgPool> {{
+    let table = \"{table}\";
+    Router::new()
+        .route(&format!(\"/{{}}\", table), post(handler::create))
+        .route(&format!(\"/{{}}\", table), get(handler::list))
+        .route(&format!(\"/{{}}/:id\", table), get(handler::get))
+        .route(&format!(\"/{{}}/:id\", table), put(handler::update))
+        .route(&format!(\"/{{}}/:id\", table), delete(handler::delete))
+}}
+",
+    table = pluralize(app)
     )
 }
 
 fn gen_models_rs(app: &str, pg_schema: &str) -> String {
-    let pascal    = snake_to_pascal(app);
-    let table     = pluralize(app);
+    let pascal = snake_to_pascal(app);
+    let table  = pluralize(app);
 
     format!(
 r#"// src/{app}/models.rs
 //
-// Add your structs here. Each public struct becomes a DB table.
-// Run `cargo makemigrations` to generate the migration, then `cargo migrate`.
+// Database models — map 1:1 to PostgreSQL tables.
+// Do NOT put request/response DTOs here; those belong in schema.rs.
 //
 // Field → SQL type mapping:
 //   Uuid              → UUID
@@ -122,17 +134,91 @@ r#"// src/{app}/models.rs
 
 use chrono::{{DateTime, Utc}};
 use serde::{{Deserialize, Serialize}};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 /// Main model for the `{pg_schema}.{table}` table.
 /// Rename or add fields — then run `cargo makemigrations`.
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
 pub struct {pascal} {{
     pub id:         Uuid,
     pub name:       String,
     pub is_active:  bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}}
+"#
+    )
+}
+
+fn gen_schema_rs(app: &str, _pg_schema: &str) -> String {
+    let pascal = snake_to_pascal(app);
+
+    format!(
+r#"// src/{app}/schema.rs
+//
+// Request & Response DTOs (data contracts / I/O layer).
+// Separated from database models to keep concerns clean.
+//
+
+use chrono::{{DateTime, Utc}};
+use serde::{{Deserialize, Serialize}};
+use utoipa::ToSchema;
+use uuid::Uuid;
+use validator::Validate;
+
+use super::models::{pascal};
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  Request schemas
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/// POST — create a new {pascal}
+#[derive(Debug, Deserialize, Validate, ToSchema)]
+pub struct Create{pascal}Request {{
+    #[validate(length(min = 1, message = "Name cannot be empty"))]
+    pub name: String,
+}}
+
+/// PUT — update an existing {pascal}
+#[derive(Debug, Deserialize, Validate, ToSchema)]
+pub struct Update{pascal}Request {{
+    pub name:      Option<String>,
+    pub is_active: Option<bool>,
+}}
+
+/// GET — query params for listing
+#[derive(Debug, Deserialize)]
+pub struct List{pascal}Query {{
+    pub page:     Option<i64>,
+    pub per_page: Option<i64>,
+    pub search:   Option<String>,
+}}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  Response schemas
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/// Public-facing response for a single {pascal}.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct {pascal}Response {{
+    pub id:         Uuid,
+    pub name:       String,
+    pub is_active:  bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}}
+
+impl From<{pascal}> for {pascal}Response {{
+    fn from(m: {pascal}) -> Self {{
+        Self {{
+            id:         m.id,
+            name:       m.name,
+            is_active:  m.is_active,
+            created_at: m.created_at,
+            updated_at: m.updated_at,
+        }}
+    }}
 }}
 "#
     )
@@ -145,170 +231,210 @@ fn gen_handler_rs(app: &str, pg_schema: &str) -> String {
     format!(
 r#"// src/{app}/handler.rs
 //
-// Axum route handlers for the `{pg_schema}.{table}` resource.
-// Wire these into your router in main.rs:
+// Business logic & API route handlers for the `{app}` app.
+// Uses: models.rs (DB) + schema.rs (I/O) + crate::response (envelopes)
 //
-//   use crate::{app}::handler as {app}_handler;
-//
-//   Router::new()
-//       .route("/{table}",     get({app}_handler::list).post({app}_handler::create))
-//       .route("/{table}/:id", get({app}_handler::get).put({app}_handler::update)
-//                                                     .delete({app}_handler::delete))
 
 use axum::{{
-    extract::{{Path, State}},
-    http::StatusCode,
+    extract::{{Path, Query, State}},
+    response::IntoResponse,
     Json,
 }};
-use serde::{{Deserialize, Serialize}};
 use sqlx::PgPool;
 use uuid::Uuid;
+use validator::Validate;
+
+use crate::error::AppError;
+use crate::response::{{ApiMessage, ApiPaginated, ApiSuccess}};
 
 use super::models::{pascal};
-
-// ── Request / Response types ──────────────────────────────────────────────────
-
-#[derive(Debug, Deserialize)]
-pub struct Create{pascal}Request {{
-    pub name: String,
-}}
-
-#[derive(Debug, Deserialize)]
-pub struct Update{pascal}Request {{
-    pub name:      Option<String>,
-    pub is_active: Option<bool>,
-}}
-
-#[derive(Debug, Serialize)]
-pub struct {pascal}Response {{
-    pub id:         Uuid,
-    pub name:       String,
-    pub is_active:  bool,
-    pub created_at: String,
-    pub updated_at: String,
-}}
-
-impl From<{pascal}> for {pascal}Response {{
-    fn from(m: {pascal}) -> Self {{
-        Self {{
-            id:         m.id,
-            name:       m.name,
-            is_active:  m.is_active,
-            created_at: m.created_at.to_rfc3339(),
-            updated_at: m.updated_at.to_rfc3339(),
-        }}
-    }}
-}}
+use super::schema::{{
+    Create{pascal}Request, Update{pascal}Request, List{pascal}Query, {pascal}Response,
+}};
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
-/// GET /{table}  — list all
-pub async fn list(
-    State(pool): State<PgPool>,
-) -> Result<Json<Vec<{pascal}Response>>, (StatusCode, String)> {{
-    let rows = sqlx::query_as!(
-        {pascal},
-        "SELECT * FROM {pg_schema}.{table} ORDER BY created_at DESC"
-    )
-    .fetch_all(&pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    Ok(Json(rows.into_iter().map({pascal}Response::from).collect()))
-}}
-
-/// GET /{table}/:id  — fetch one
-pub async fn get(
-    State(pool): State<PgPool>,
-    Path(id): Path<Uuid>,
-) -> Result<Json<{pascal}Response>, (StatusCode, String)> {{
-    let row = sqlx::query_as!(
-        {pascal},
-        "SELECT * FROM {pg_schema}.{table} WHERE id = $1",
-        id
-    )
-    .fetch_optional(&pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .ok_or((StatusCode::NOT_FOUND, format!("{pascal} not found")))?;
-
-    Ok(Json({pascal}Response::from(row)))
-}}
-
-/// POST /{table}  — create
+/// POST — create
+#[utoipa::path(
+    post,
+    path = "/api/v1/{table}",
+    request_body = Create{pascal}Request,
+    responses(
+        (status = 201, description = "{pascal} created"),
+        (status = 400, description = "Validation error"),
+    ),
+    tag = "{pascal}"
+)]
 pub async fn create(
     State(pool): State<PgPool>,
     Json(body): Json<Create{pascal}Request>,
-) -> Result<(StatusCode, Json<{pascal}Response>), (StatusCode, String)> {{
-    let row = sqlx::query_as!(
-        {pascal},
+) -> Result<impl IntoResponse, AppError> {{
+    body.validate().map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    let row = sqlx::query_as::<_, {pascal}>(
         "INSERT INTO {pg_schema}.{table} (id, name, is_active, created_at, updated_at)
          VALUES (gen_random_uuid(), $1, true, NOW(), NOW())
-         RETURNING *",
-        body.name
+         RETURNING *"
     )
+    .bind(&body.name)
     .fetch_one(&pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
-    Ok((StatusCode::CREATED, Json({pascal}Response::from(row))))
+    let response: {pascal}Response = row.into();
+    Ok(ApiSuccess::created(response))
 }}
 
-/// PUT /{table}/:id  — update
+/// GET — list (paginated)
+#[utoipa::path(
+    get,
+    path = "/api/v1/{table}",
+    params(
+        ("page"     = Option<i64>, Query, description = "Page number (default 1)"),
+        ("per_page" = Option<i64>, Query, description = "Items per page (default 20)"),
+        ("search"   = Option<String>, Query, description = "Search by name"),
+    ),
+    responses(
+        (status = 200, description = "Paginated list of {table}"),
+    ),
+    tag = "{pascal}"
+)]
+pub async fn list(
+    State(pool): State<PgPool>,
+    Query(params): Query<List{pascal}Query>,
+) -> Result<impl IntoResponse, AppError> {{
+    let page     = params.page.unwrap_or(1).max(1);
+    let per_page = params.per_page.unwrap_or(20).clamp(1, 100);
+    let offset   = (page - 1) * per_page;
+
+    let (rows, total) = if let Some(ref search) = params.search {{
+        let pattern = format!("%{{search}}%");
+
+        let rows = sqlx::query_as::<_, {pascal}>(
+            "SELECT * FROM {pg_schema}.{table} WHERE name ILIKE $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3"
+        )
+        .bind(&pattern).bind(per_page).bind(offset)
+        .fetch_all(&pool).await?;
+
+        let total = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM {pg_schema}.{table} WHERE name ILIKE $1"
+        )
+        .bind(&pattern).fetch_one(&pool).await?;
+
+        (rows, total)
+    }} else {{
+        let rows = sqlx::query_as::<_, {pascal}>(
+            "SELECT * FROM {pg_schema}.{table} ORDER BY created_at DESC LIMIT $1 OFFSET $2"
+        )
+        .bind(per_page).bind(offset)
+        .fetch_all(&pool).await?;
+
+        let total = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM {pg_schema}.{table}"
+        )
+        .fetch_one(&pool).await?;
+
+        (rows, total)
+    }};
+
+    let responses: Vec<{pascal}Response> = rows.into_iter().map(Into::into).collect();
+    Ok(ApiPaginated::new(responses, total, page, per_page))
+}}
+
+/// GET — fetch one
+#[utoipa::path(
+    get,
+    path = "/api/v1/{table}/{{id}}",
+    params(("id" = Uuid, Path, description = "{pascal} UUID")),
+    responses(
+        (status = 200, description = "{pascal} details"),
+        (status = 404, description = "Not found"),
+    ),
+    tag = "{pascal}"
+)]
+pub async fn get(
+    State(pool): State<PgPool>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, AppError> {{
+    let row = sqlx::query_as::<_, {pascal}>(
+        "SELECT * FROM {pg_schema}.{table} WHERE id = $1"
+    )
+    .bind(id)
+    .fetch_optional(&pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound(format!("{pascal} {{id}} not found")))?;
+
+    let response: {pascal}Response = row.into();
+    Ok(ApiSuccess::ok(response))
+}}
+
+/// PUT — update
+#[utoipa::path(
+    put,
+    path = "/api/v1/{table}/{{id}}",
+    params(("id" = Uuid, Path, description = "{pascal} UUID")),
+    request_body = Update{pascal}Request,
+    responses(
+        (status = 200, description = "{pascal} updated"),
+        (status = 404, description = "Not found"),
+    ),
+    tag = "{pascal}"
+)]
 pub async fn update(
     State(pool): State<PgPool>,
     Path(id): Path<Uuid>,
     Json(body): Json<Update{pascal}Request>,
-) -> Result<Json<{pascal}Response>, (StatusCode, String)> {{
-    let row = sqlx::query_as!(
-        {pascal},
+) -> Result<impl IntoResponse, AppError> {{
+    let row = sqlx::query_as::<_, {pascal}>(
         "UPDATE {pg_schema}.{table}
-         SET    name      = COALESCE($2, name),
-                is_active = COALESCE($3, is_active),
+         SET    name       = COALESCE($2, name),
+                is_active  = COALESCE($3, is_active),
                 updated_at = NOW()
          WHERE  id = $1
-         RETURNING *",
-        id, body.name, body.is_active
+         RETURNING *"
     )
+    .bind(id)
+    .bind(&body.name)
+    .bind(body.is_active)
     .fetch_optional(&pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .ok_or((StatusCode::NOT_FOUND, format!("{pascal} not found")))?;
+    .await?
+    .ok_or_else(|| AppError::NotFound(format!("{pascal} {{id}} not found")))?;
 
-    Ok(Json({pascal}Response::from(row)))
+    let response: {pascal}Response = row.into();
+    Ok(ApiSuccess::ok(response))
 }}
 
-/// DELETE /{table}/:id  — delete
+/// DELETE — delete
+#[utoipa::path(
+    delete,
+    path = "/api/v1/{table}/{{id}}",
+    params(("id" = Uuid, Path, description = "{pascal} UUID")),
+    responses(
+        (status = 200, description = "{pascal} deleted"),
+        (status = 404, description = "Not found"),
+    ),
+    tag = "{pascal}"
+)]
 pub async fn delete(
     State(pool): State<PgPool>,
     Path(id): Path<Uuid>,
-) -> Result<StatusCode, (StatusCode, String)> {{
-    let result = sqlx::query!(
-        "DELETE FROM {pg_schema}.{table} WHERE id = $1",
-        id
+) -> Result<impl IntoResponse, AppError> {{
+    let result = sqlx::query(
+        "DELETE FROM {pg_schema}.{table} WHERE id = $1"
     )
+    .bind(id)
     .execute(&pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     if result.rows_affected() == 0 {{
-        Err((StatusCode::NOT_FOUND, format!("{pascal} not found")))
-    }} else {{
-        Ok(StatusCode::NO_CONTENT)
+        return Err(AppError::NotFound(format!("{pascal} {{id}} not found")));
     }}
+
+    Ok(ApiMessage::deleted("{pascal}"))
 }}
 "#
     )
 }
 
-fn gen_schemas_rs(app: &str) -> String {
-    format!(
-"// src/{app}/schemas.rs
-// @generated — updated automatically by `diesel print-schema` via diesel.toml.
-// Do not edit by hand.
-"
-    )
-}
 
 // ── File patching helpers ─────────────────────────────────────────────────────
 
@@ -342,31 +468,6 @@ fn append_if_missing(path: &PathBuf, new_line: &str) -> Result<bool> {
     Ok(true)
 }
 
-/// Replace a specific marker line with two lines (the marker + new content).
-#[allow(dead_code)]
-fn insert_after_marker(path: &PathBuf, marker: &str, new_line: &str) -> Result<bool> {
-    let content = fs::read_to_string(path)?;
-    if content.contains(new_line.trim()) { return Ok(false); }
-
-    let mut out = String::with_capacity(content.len() + new_line.len() + 2);
-    let mut inserted = false;
-    for line in content.lines() {
-        out.push_str(line);
-        out.push('\n');
-        if !inserted && line.contains(marker) {
-            out.push_str(new_line);
-            out.push('\n');
-            inserted = true;
-        }
-    }
-    if !inserted {
-        out.push_str(new_line);
-        out.push('\n');
-    }
-    fs::write(path, out)?;
-    Ok(true)
-}
-
 // ── Patcher: src/main.rs ──────────────────────────────────────────────────────
 
 fn patch_main_rs(app: &str, src: &PathBuf) -> Result<()> {
@@ -395,66 +496,6 @@ fn patch_models_mod(app: &str, pascal: &str, src: &PathBuf) -> Result<()> {
     Ok(())
 }
 
-// ── Patcher: src/schema.rs ────────────────────────────────────────────────────
-
-fn patch_schema_rs(app: &str, pg_schema: &str, src: &PathBuf) -> Result<()> {
-    let path = src.join("schema.rs");
-    let block = format!(
-        "pub mod {pg_schema} {{\n    include!(\"{app}/schemas.rs\");\n}}"
-    );
-    // Check if already present (check just the mod line)
-    let content = fs::read_to_string(&path)?;
-    if content.contains(&format!("pub mod {pg_schema}")) {
-        println!("  {DIM}≡  src/schema.rs  (already registered){RST}");
-        return Ok(());
-    }
-    let sep = if content.ends_with('\n') { "" } else { "\n" };
-    fs::write(&path, format!("{content}{sep}\n{block}\n"))?;
-    println!("  {GRN}✓{RST}  {BLD}src/schema.rs{RST}  {DIM}← pub mod {pg_schema} {{ ... }}{RST}");
-    Ok(())
-}
-
-// ── Patcher: diesel.toml ──────────────────────────────────────────────────────
-
-fn patch_diesel_toml(app: &str, pg_schema: &str, root: &PathBuf) -> Result<()> {
-    let path = root.join("diesel.toml");
-    let section = format!(
-        "[print_schema.{pg_schema}]\nfile = \"src/{app}/schemas.rs\"\nschema = \"{pg_schema}\"\nwith_docs = false"
-    );
-    // Check if section already exists
-    let content = fs::read_to_string(&path)?;
-    if content.contains(&format!("[print_schema.{pg_schema}]")) {
-        println!("  {DIM}≡  diesel.toml  (already registered){RST}");
-        return Ok(());
-    }
-    let sep = if content.ends_with('\n') { "" } else { "\n" };
-    fs::write(&path, format!("{content}{sep}\n{section}\n"))?;
-    println!("  {GRN}✓{RST}  {BLD}diesel.toml{RST}  {DIM}← [print_schema.{pg_schema}]{RST}");
-    Ok(())
-}
-
-// ── Patcher: src/bin/makemigrations.rs ───────────────────────────────────────
-
-fn patch_makemigrations(app: &str, pg_schema: &str, src: &PathBuf) -> Result<()> {
-    let path = src.join("bin").join("makemigrations.rs");
-    let new_entry = format!("    (\"{app}/models.rs\",  \"{pg_schema}\"),");
-
-    // Check idempotency
-    let content = fs::read_to_string(&path)?;
-    if content.contains(&format!("\"{app}/models.rs\"")) {
-        println!("  {DIM}≡  src/bin/makemigrations.rs  (already registered){RST}");
-        return Ok(());
-    }
-
-    // Insert before the closing `];` of MODEL_FILES
-    let added = insert_before(&path, "];", &new_entry)?;
-    if added {
-        println!(
-            "  {GRN}✓{RST}  {BLD}src/bin/makemigrations.rs{RST}  {DIM}← MODEL_FILES += {app}{RST}"
-        );
-    }
-    Ok(())
-}
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
@@ -503,6 +544,7 @@ fn main() -> Result<()> {
 
     let schema = pg_schema.unwrap_or_else(|| app.clone());
     let pascal = snake_to_pascal(&app);
+    let _table = pluralize(&app);
 
     println!("\n{BLD}╔══════════════════════════════════════╗");
     println!("║  cargo startapp                     ║");
@@ -530,11 +572,12 @@ fn main() -> Result<()> {
     println!("{CYN}Creating app files...{RST}");
     fs::create_dir_all(&app_dir)?;
 
+    // (filename, generator_fn, uses_schema_param)
     let files: &[(&str, fn(&str, &str) -> String, bool)] = &[
         ("mod.rs",     |a, _| gen_mod_rs(a),          false),
         ("models.rs",  gen_models_rs,                   true),
+        ("schema.rs",  gen_schema_rs,                   true),
         ("handler.rs", gen_handler_rs,                  true),
-        ("schemas.rs", |a, _| gen_schemas_rs(a),       false),
     ];
 
     for (filename, gen_fn, uses_schema) in files {
@@ -557,9 +600,6 @@ fn main() -> Result<()> {
 
     patch_main_rs(&app, &src)?;
     patch_models_mod(&app, &pascal, &src)?;
-    patch_schema_rs(&app, &schema, &src)?;
-    patch_diesel_toml(&app, &schema, &root)?;
-    patch_makemigrations(&app, &schema, &src)?;
 
     // ── 3. Update app registry ────────────────────────────────────────────────
     let mut registry = load_registry();
@@ -572,25 +612,32 @@ fn main() -> Result<()> {
     println!("  {GRN}✓{RST}  {BLD}.apps.json{RST}  {DIM}← app registry updated{RST}");
 
     // ── 4. Next steps ─────────────────────────────────────────────────────────
-    let table = pluralize(&app);
-
     println!();
     println!("{GRN}{BLD}✓  App '{app}' created successfully!{RST}");
     println!();
+    println!("{BLD}App structure:{RST}");
+    println!("  {DIM}src/{app}/{RST}");
+    println!("  {DIM}├── {RST}{BLD}mod.rs{RST}       {DIM}— module exports & route wiring{RST}");
+    println!("  {DIM}├── {RST}{BLD}models.rs{RST}    {DIM}— database models (sqlx::FromRow){RST}");
+    println!("  {DIM}├── {RST}{BLD}schema.rs{RST}    {DIM}— request/response DTOs (data contracts){RST}");
+    println!("  {DIM}└── {RST}{BLD}handler.rs{RST}   {DIM}— API handlers & business logic{RST}");
+    println!();
     println!("{BLD}Next steps:{RST}");
-    println!("  {DIM}1.{RST}  Edit    {BLD}src/{app}/models.rs{RST}  — add your fields");
-    println!("  {DIM}2.{RST}  Run     {BLD}cargo makemigrations{RST}  — generate SQL");
-    println!("  {DIM}3.{RST}  Run     {BLD}cargo migrate{RST}  — apply to database");
-    println!("  {DIM}4.{RST}  Wire    {BLD}src/{app}/handler.rs{RST}  into your router:");
+    println!("  {DIM}1.{RST}  Edit    {BLD}src/{app}/models.rs{RST}    — add your DB fields");
+    println!("  {DIM}2.{RST}  Edit    {BLD}src/{app}/schema.rs{RST}    — define request/response types");
+    println!("  {DIM}3.{RST}  Run     {BLD}cargo makemigrations{RST}    — generate SQL");
+    println!("  {DIM}4.{RST}  Run     {BLD}cargo migrate{RST}            — apply to database");
+    println!("  {DIM}5.{RST}  Wire    {BLD}src/{app}/handler.rs{RST}   into your router:");
     println!();
-    println!("       {DIM}// in main.rs{RST}");
-    println!("       use crate::{app}::handler as {app}_handler;");
+    println!("       {DIM}// in main.rs — add to the app builder:{RST}");
+    println!("       .merge({app}::routes())");
     println!();
-    println!("       Router::new()");
-    println!("           .route(\"/{table}\",     get({app}_handler::list).post({app}_handler::create))");
-    println!("           .route(\"/{table}/:id\", get({app}_handler::get)");
-    println!("                                  .put({app}_handler::update)");
-    println!("                                  .delete({app}_handler::delete))");
+    println!("       {DIM}// in main.rs — add to OpenAPI schema:{RST}");
+    println!("       {app}::handler::create,");
+    println!("       {app}::handler::list,");
+    println!("       {app}::handler::get,");
+    println!("       {app}::handler::update,");
+    println!("       {app}::handler::delete,");
     println!();
 
     Ok(())

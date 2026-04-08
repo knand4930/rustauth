@@ -2,10 +2,11 @@
 name = "authentication"
 version = "0.1.0"
 edition = "2024"
+default-run = "authentication"
 
 [dependencies]
 anyhow = "1.0.102"
-argon2 = "0.5.3"
+argon2 = { version = "0.5.3", features = ["password-hash"] }
 async-trait = "0.1.89"
 axum = { version = "0.8.8", features = ["http2", "macros", "ws", "multipart"] }
 axum-extra = { version = "0.12.5", features = ["cookie"] }
@@ -27,8 +28,8 @@ tokio-cron-scheduler = "0.15.1"
 tower = "0.5.3"
 tower-http = { version = "0.6.8", features = ["cors", "limit", "trace"] }
 tracing = "0.1.44"
-tracing-subscriber = "0.3.23"
-utoipa = "5.4.0"
-utoipa-swagger-ui = "9.0.2"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+utoipa = { version = "5.4.0", features = ["chrono", "uuid"] }
+utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 uuid = { version = "1.23.0", features = ["fast-rng", "serde", "v4"] }
 validator = { version = "0.20.0", features = ["derive"] }

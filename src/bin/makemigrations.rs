@@ -23,7 +23,6 @@ fn discover_models(src_dir: &Path) -> Result<Vec<(String, String)>> {
         return Ok(vec![]);
     }
     let content = fs::read_to_string(&mod_rs)?;
-    ("newsite/models.rs",  "newsite"),
     let mut files = vec![];
     for line in content.lines() {
         let line = line.trim();
@@ -567,7 +566,6 @@ fn compute_diff(tables: &[ParsedTable], prev: &SchemaState, reg: &HashMap<String
                                 down.push(format!("DROP INDEX IF EXISTS {schema}.idx_{tbl}_{col};", schema=t.schema, tbl=t.table, col=f.name));
                             }
                         }
-                        _ => {}
                     }
                 }
 
