@@ -1,4 +1,4 @@
-// src/blogs/handler.rs
+// src/blogs/handlers.rs
 //
 // Business logic & API route handlers for the Blogs app.
 //
@@ -8,15 +8,15 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use sqlx::PgPool;
 use uuid::Uuid;
 use validator::Validate;
 
 use crate::error::AppError;
 use crate::response::{ApiList, ApiMessage, ApiPaginated, ApiSuccess};
+use crate::state::AppState;
 
 use super::models::{BlogPost, Comment};
-use super::schema::{
+use super::schemas::{
     CreateBlogPostRequest, CreateCommentRequest, ListBlogsQuery, UpdateBlogPostRequest,
 };
 
@@ -34,7 +34,7 @@ use super::schema::{
     tag = "Blog Posts"
 )]
 pub async fn create_blog_post(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Json(body): Json<CreateBlogPostRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     body.validate().map_err(|e| AppError::BadRequest(e.to_string()))?;
@@ -67,7 +67,7 @@ pub async fn create_blog_post(
     .bind(&body.content)
     .bind(&short_desc)
     .bind(is_published)
-    .fetch_one(&pool)
+    .fetch_one(&state.db)
     .await?;
 
     Ok(ApiSuccess::created(post))
@@ -88,7 +88,7 @@ pub async fn create_blog_post(
     tag = "Blog Posts"
 )]
 pub async fn list_blog_posts(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Query(params): Query<ListBlogsQuery>,
 ) -> Result<impl IntoResponse, AppError> {
     let page = params.page.unwrap_or(1).max(1);
@@ -102,13 +102,13 @@ pub async fn list_blog_posts(
         )
         .bind(per_page)
         .bind(offset)
-        .fetch_all(&pool)
+        .fetch_all(&state.db)
         .await?;
 
         let total = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM blog_posts WHERE is_published = true",
         )
-        .fetch_one(&pool)
+        .fetch_one(&state.db)
         .await?;
 
         (posts, total)
@@ -118,11 +118,11 @@ pub async fn list_blog_posts(
         )
         .bind(per_page)
         .bind(offset)
-        .fetch_all(&pool)
+        .fetch_all(&state.db)
         .await?;
 
         let total = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM blog_posts")
-            .fetch_one(&pool)
+            .fetch_one(&state.db)
             .await?;
 
         (posts, total)
@@ -143,12 +143,12 @@ pub async fn list_blog_posts(
     tag = "Blog Posts"
 )]
 pub async fn get_blog_post(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
     let post = sqlx::query_as::<_, BlogPost>("SELECT * FROM blog_posts WHERE id = $1")
         .bind(id)
-        .fetch_optional(&pool)
+        .fetch_optional(&state.db)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Blog post {id} not found")))?;
 
@@ -168,7 +168,7 @@ pub async fn get_blog_post(
     tag = "Blog Posts"
 )]
 pub async fn update_blog_post(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateBlogPostRequest>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -193,7 +193,7 @@ pub async fn update_blog_post(
     .bind(&body.content)
     .bind(&body.short_description)
     .bind(body.is_published)
-    .fetch_optional(&pool)
+    .fetch_optional(&state.db)
     .await?
     .ok_or_else(|| AppError::NotFound(format!("Blog post {id} not found")))?;
 
@@ -212,12 +212,12 @@ pub async fn update_blog_post(
     tag = "Blog Posts"
 )]
 pub async fn delete_blog_post(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
     let result = sqlx::query("DELETE FROM blog_posts WHERE id = $1")
         .bind(id)
-        .execute(&pool)
+        .execute(&state.db)
         .await?;
 
     if result.rows_affected() == 0 {
@@ -242,7 +242,7 @@ pub async fn delete_blog_post(
     tag = "Comments"
 )]
 pub async fn create_comment(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Path(blog_id): Path<Uuid>,
     Json(body): Json<CreateCommentRequest>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -250,7 +250,7 @@ pub async fn create_comment(
         "SELECT EXISTS(SELECT 1 FROM blog_posts WHERE id = $1)",
     )
     .bind(blog_id)
-    .fetch_one(&pool)
+    .fetch_one(&state.db)
     .await?;
 
     if !exists {
@@ -275,7 +275,7 @@ pub async fn create_comment(
     .bind(&body.guest_name)
     .bind(body.parent_id)
     .bind(&body.content)
-    .fetch_one(&pool)
+    .fetch_one(&state.db)
     .await?;
 
     Ok(ApiSuccess::created(comment))
@@ -292,14 +292,14 @@ pub async fn create_comment(
     tag = "Comments"
 )]
 pub async fn list_comments(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Path(blog_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
     let comments = sqlx::query_as::<_, Comment>(
         "SELECT * FROM comments WHERE blog_post_id = $1 ORDER BY created_at ASC",
     )
     .bind(blog_id)
-    .fetch_all(&pool)
+    .fetch_all(&state.db)
     .await?;
 
     Ok(ApiList::new(comments))

@@ -1,7 +1,7 @@
-// src/user/handler.rs
+// src/user/handlers.rs
 //
 // Business logic & API route handlers for the User app.
-// Uses: models.rs (DB) + schema.rs (I/O) + crate::response (envelopes)
+// Uses: models.rs (DB) + schemas.rs (I/O) + crate::response (envelopes)
 //
 
 use axum::{
@@ -9,15 +9,15 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use sqlx::PgPool;
 use uuid::Uuid;
 use validator::Validate;
 
 use crate::error::AppError;
 use crate::response::{ApiMessage, ApiPaginated, ApiSuccess};
+use crate::state::AppState;
 
 use super::models::User;
-use super::schema::{
+use super::schemas::{
     AuthTokenResponse, ListUsersQuery, LoginRequest, RegisterRequest, UpdateUserRequest,
     UserResponse,
 };
@@ -37,24 +37,22 @@ use super::schema::{
     tag = "Authentication"
 )]
 pub async fn register(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Json(body): Json<RegisterRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     body.validate().map_err(|e| AppError::BadRequest(e.to_string()))?;
 
-    // Check if email already exists
     let existing = sqlx::query_scalar::<_, bool>(
         "SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)",
     )
     .bind(&body.email)
-    .fetch_one(&pool)
+    .fetch_one(&state.db)
     .await?;
 
     if existing {
         return Err(AppError::Conflict("Email already registered".to_string()));
     }
 
-    // Hash password with argon2
     use argon2::PasswordHasher;
     let salt = argon2::password_hash::SaltString::generate(
         &mut argon2::password_hash::rand_core::OsRng,
@@ -87,7 +85,7 @@ pub async fn register(
     .bind(&body.full_name)
     .bind(&body.company)
     .bind(&body.phone_number)
-    .fetch_one(&pool)
+    .fetch_one(&state.db)
     .await?;
 
     let response: UserResponse = user.into();
@@ -106,7 +104,7 @@ pub async fn register(
     tag = "Authentication"
 )]
 pub async fn login(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Json(body): Json<LoginRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     body.validate().map_err(|e| AppError::BadRequest(e.to_string()))?;
@@ -115,11 +113,10 @@ pub async fn login(
         "SELECT * FROM users WHERE email = $1 AND is_active = true",
     )
     .bind(&body.email)
-    .fetch_optional(&pool)
+    .fetch_optional(&state.db)
     .await?
     .ok_or_else(|| AppError::Unauthorized("Invalid email or password".to_string()))?;
 
-    // Verify password
     let parsed_hash =
         argon2::PasswordHash::new(user.password.as_deref().unwrap_or(""))
             .map_err(|_| AppError::Unauthorized("Invalid email or password".to_string()))?;
@@ -131,16 +128,15 @@ pub async fn login(
     )
     .map_err(|_| AppError::Unauthorized("Invalid email or password".to_string()))?;
 
-    // Update login tracking
     sqlx::query(
         "UPDATE users SET login_count = login_count + 1, last_login_at = NOW() WHERE id = $1",
     )
     .bind(user.id)
-    .execute(&pool)
+    .execute(&state.db)
     .await?;
 
-    // Generate JWT tokens
-    let config = crate::config::AppConfig::from_env();
+    // Use shared config from state — no env re-read on each request
+    let config = &state.config;
     let now = chrono::Utc::now();
     let access_exp = now + chrono::Duration::minutes(config.jwt_maxage);
     let refresh_exp = now + chrono::Duration::days(7);
@@ -160,8 +156,7 @@ pub async fn login(
         "type": "refresh",
     });
 
-    let encoding_key =
-        jsonwebtoken::EncodingKey::from_secret(config.jwt_secret.as_bytes());
+    let encoding_key = jsonwebtoken::EncodingKey::from_secret(config.jwt_secret.as_bytes());
     let header = jsonwebtoken::Header::default();
 
     let access_token = jsonwebtoken::encode(&header, &access_claims, &encoding_key)
@@ -198,7 +193,7 @@ pub async fn login(
     tag = "Users"
 )]
 pub async fn list_users(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Query(params): Query<ListUsersQuery>,
 ) -> Result<impl IntoResponse, AppError> {
     let page = params.page.unwrap_or(1).max(1);
@@ -214,14 +209,14 @@ pub async fn list_users(
         .bind(&pattern)
         .bind(per_page)
         .bind(offset)
-        .fetch_all(&pool)
+        .fetch_all(&state.db)
         .await?;
 
         let total = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM users WHERE email ILIKE $1 OR full_name ILIKE $1",
         )
         .bind(&pattern)
-        .fetch_one(&pool)
+        .fetch_one(&state.db)
         .await?;
 
         (users, total)
@@ -231,11 +226,11 @@ pub async fn list_users(
         )
         .bind(per_page)
         .bind(offset)
-        .fetch_all(&pool)
+        .fetch_all(&state.db)
         .await?;
 
         let total = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users")
-            .fetch_one(&pool)
+            .fetch_one(&state.db)
             .await?;
 
         (users, total)
@@ -257,12 +252,12 @@ pub async fn list_users(
     tag = "Users"
 )]
 pub async fn get_user(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
     let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
         .bind(id)
-        .fetch_optional(&pool)
+        .fetch_optional(&state.db)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("User {id} not found")))?;
 
@@ -283,7 +278,7 @@ pub async fn get_user(
     tag = "Users"
 )]
 pub async fn update_user(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateUserRequest>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -310,7 +305,7 @@ pub async fn update_user(
     .bind(&body.language)
     .bind(&body.avatar_url)
     .bind(&body.location)
-    .fetch_optional(&pool)
+    .fetch_optional(&state.db)
     .await?
     .ok_or_else(|| AppError::NotFound(format!("User {id} not found")))?;
 
@@ -330,13 +325,13 @@ pub async fn update_user(
     tag = "Users"
 )]
 pub async fn delete_user(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
     let result =
         sqlx::query("UPDATE users SET is_active = false, updated_at = NOW() WHERE id = $1")
             .bind(id)
-            .execute(&pool)
+            .execute(&state.db)
             .await?;
 
     if result.rows_affected() == 0 {

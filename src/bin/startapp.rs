@@ -8,14 +8,14 @@
 //
 // What it creates:
 //   src/<appname>/
-//       mod.rs       — module declarations
+//       mod.rs       — module declarations, re-exports, route wiring
 //       models.rs    — database model structs (sqlx::FromRow)
-//       schema.rs    — request/response DTOs (data contracts)
-//       handler.rs   — axum route handlers (CRUD stubs)
+//       schemas.rs   — request/response DTOs (data contracts)
+//       handlers.rs  — axum route handlers (CRUD stubs)
 //
 // What it patches automatically:
 //   src/main.rs              — add `mod <appname>;`
-//   src/models/mod.rs        — re-export structs
+//   src/models/mod.rs        — re-export model struct
 //   .apps.json               — internal app registry (created if missing)
 
 use anyhow::{bail, Context, Result};
@@ -84,29 +84,44 @@ fn pluralize(s: &str) -> String {
 
 // ── Template generators ───────────────────────────────────────────────────────
 
-fn gen_mod_rs(app: &str) -> String {
+fn gen_mod_rs(app: &str, _pg_schema: &str) -> String {
+    let table = pluralize(app);
     format!(
 "// src/{app}/mod.rs
+//
+// This is the single entry point for the `{app}` module.
+// main.rs only needs:  mod {app};
+//
+// mod.rs manages:
+//   - module declarations (handlers, models, schemas)
+//   - public re-exports (types accessible as {app}::MyType)
+//   - route wiring (the routes() function)
 
-pub mod handler;
+pub mod handlers;
 pub mod models;
-pub mod schema;
+pub mod schemas;
+
+// Re-export types so callers can write `{app}::MyStruct` instead of
+// `{app}::models::MyStruct` or `{app}::schemas::MyStruct`.
+pub use models::{pascal};
+pub use schemas::{{Create{pascal}Request, Update{pascal}Request, {pascal}Response}};
 
 use axum::{{routing::{{delete, get, post, put}}, Router}};
-use sqlx::PgPool;
 
-/// Build the {app} routes.
-pub fn routes() -> Router<PgPool> {{
-    let table = \"{table}\";
+use crate::state::AppState;
+
+/// Mount all `{app}` routes onto the application router.
+pub fn routes() -> Router<AppState> {{
     Router::new()
-        .route(&format!(\"/{{}}\", table), post(handler::create))
-        .route(&format!(\"/{{}}\", table), get(handler::list))
-        .route(&format!(\"/{{}}/:id\", table), get(handler::get))
-        .route(&format!(\"/{{}}/:id\", table), put(handler::update))
-        .route(&format!(\"/{{}}/:id\", table), delete(handler::delete))
+        .route(\"/api/v1/{table}\",      post(handlers::create))
+        .route(\"/api/v1/{table}\",      get(handlers::list))
+        .route(\"/api/v1/{table}/{{id}}\", get(handlers::get))
+        .route(\"/api/v1/{table}/{{id}}\", put(handlers::update))
+        .route(\"/api/v1/{table}/{{id}}\", delete(handlers::delete))
 }}
 ",
-    table = pluralize(app)
+        pascal = snake_to_pascal(app),
+        table  = table,
     )
 }
 
@@ -118,11 +133,11 @@ fn gen_models_rs(app: &str, pg_schema: &str) -> String {
 r#"// src/{app}/models.rs
 //
 // Database models — map 1:1 to PostgreSQL tables.
-// Do NOT put request/response DTOs here; those belong in schema.rs.
+// Do NOT put request/response DTOs here; those belong in schemas.rs.
 //
 // Field → SQL type mapping:
 //   Uuid              → UUID
-//   String            → VARCHAR
+//   String            → VARCHAR / TEXT
 //   bool              → BOOLEAN
 //   i32               → INTEGER
 //   i64               → BIGINT
@@ -138,7 +153,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 /// Main model for the `{pg_schema}.{table}` table.
-/// Rename or add fields — then run `cargo makemigrations`.
+/// Add or rename fields here, then run `cargo makemigrations`.
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
 pub struct {pascal} {{
     pub id:         Uuid,
@@ -151,11 +166,11 @@ pub struct {pascal} {{
     )
 }
 
-fn gen_schema_rs(app: &str, _pg_schema: &str) -> String {
+fn gen_schemas_rs(app: &str, _pg_schema: &str) -> String {
     let pascal = snake_to_pascal(app);
 
     format!(
-r#"// src/{app}/schema.rs
+r#"// src/{app}/schemas.rs
 //
 // Request & Response DTOs (data contracts / I/O layer).
 // Separated from database models to keep concerns clean.
@@ -173,21 +188,21 @@ use super::models::{pascal};
 //  Request schemas
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-/// POST — create a new {pascal}
+/// POST /api/v1/{table} — create a new {pascal}
 #[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct Create{pascal}Request {{
     #[validate(length(min = 1, message = "Name cannot be empty"))]
     pub name: String,
 }}
 
-/// PUT — update an existing {pascal}
+/// PUT /api/v1/{table}/{{id}} — update an existing {pascal}
 #[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct Update{pascal}Request {{
     pub name:      Option<String>,
     pub is_active: Option<bool>,
 }}
 
-/// GET — query params for listing
+/// GET /api/v1/{table} — query params for listing
 #[derive(Debug, Deserialize)]
 pub struct List{pascal}Query {{
     pub page:     Option<i64>,
@@ -220,19 +235,20 @@ impl From<{pascal}> for {pascal}Response {{
         }}
     }}
 }}
-"#
+"#,
+        table = pluralize(app),
     )
 }
 
-fn gen_handler_rs(app: &str, pg_schema: &str) -> String {
+fn gen_handlers_rs(app: &str, pg_schema: &str) -> String {
     let pascal = snake_to_pascal(app);
     let table  = pluralize(app);
 
     format!(
-r#"// src/{app}/handler.rs
+r##"// src/{app}/handlers.rs
 //
-// Business logic & API route handlers for the `{app}` app.
-// Uses: models.rs (DB) + schema.rs (I/O) + crate::response (envelopes)
+// API route handlers & business logic for the `{app}` app.
+// Uses: models.rs (DB structs) + schemas.rs (I/O DTOs) + crate::response (envelopes)
 //
 
 use axum::{{
@@ -240,21 +256,21 @@ use axum::{{
     response::IntoResponse,
     Json,
 }};
-use sqlx::PgPool;
 use uuid::Uuid;
 use validator::Validate;
 
 use crate::error::AppError;
 use crate::response::{{ApiMessage, ApiPaginated, ApiSuccess}};
+use crate::state::AppState;
 
 use super::models::{pascal};
-use super::schema::{{
-    Create{pascal}Request, Update{pascal}Request, List{pascal}Query, {pascal}Response,
+use super::schemas::{{
+    Create{pascal}Request, List{pascal}Query, Update{pascal}Request, {pascal}Response,
 }};
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
-/// POST — create
+/// POST /api/v1/{table} — create
 #[utoipa::path(
     post,
     path = "/api/v1/{table}",
@@ -266,7 +282,7 @@ use super::schema::{{
     tag = "{pascal}"
 )]
 pub async fn create(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Json(body): Json<Create{pascal}Request>,
 ) -> Result<impl IntoResponse, AppError> {{
     body.validate().map_err(|e| AppError::BadRequest(e.to_string()))?;
@@ -274,17 +290,17 @@ pub async fn create(
     let row = sqlx::query_as::<_, {pascal}>(
         "INSERT INTO {pg_schema}.{table} (id, name, is_active, created_at, updated_at)
          VALUES (gen_random_uuid(), $1, true, NOW(), NOW())
-         RETURNING *"
+         RETURNING *",
     )
     .bind(&body.name)
-    .fetch_one(&pool)
+    .fetch_one(&state.db)
     .await?;
 
     let response: {pascal}Response = row.into();
     Ok(ApiSuccess::created(response))
 }}
 
-/// GET — list (paginated)
+/// GET /api/v1/{table} — list (paginated)
 #[utoipa::path(
     get,
     path = "/api/v1/{table}",
@@ -299,7 +315,7 @@ pub async fn create(
     tag = "{pascal}"
 )]
 pub async fn list(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Query(params): Query<List{pascal}Query>,
 ) -> Result<impl IntoResponse, AppError> {{
     let page     = params.page.unwrap_or(1).max(1);
@@ -310,28 +326,28 @@ pub async fn list(
         let pattern = format!("%{{search}}%");
 
         let rows = sqlx::query_as::<_, {pascal}>(
-            "SELECT * FROM {pg_schema}.{table} WHERE name ILIKE $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3"
+            "SELECT * FROM {pg_schema}.{table} WHERE name ILIKE $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
         )
         .bind(&pattern).bind(per_page).bind(offset)
-        .fetch_all(&pool).await?;
+        .fetch_all(&state.db).await?;
 
         let total = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM {pg_schema}.{table} WHERE name ILIKE $1"
+            "SELECT COUNT(*) FROM {pg_schema}.{table} WHERE name ILIKE $1",
         )
-        .bind(&pattern).fetch_one(&pool).await?;
+        .bind(&pattern).fetch_one(&state.db).await?;
 
         (rows, total)
     }} else {{
         let rows = sqlx::query_as::<_, {pascal}>(
-            "SELECT * FROM {pg_schema}.{table} ORDER BY created_at DESC LIMIT $1 OFFSET $2"
+            "SELECT * FROM {pg_schema}.{table} ORDER BY created_at DESC LIMIT $1 OFFSET $2",
         )
         .bind(per_page).bind(offset)
-        .fetch_all(&pool).await?;
+        .fetch_all(&state.db).await?;
 
         let total = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM {pg_schema}.{table}"
+            "SELECT COUNT(*) FROM {pg_schema}.{table}",
         )
-        .fetch_one(&pool).await?;
+        .fetch_one(&state.db).await?;
 
         (rows, total)
     }};
@@ -340,7 +356,7 @@ pub async fn list(
     Ok(ApiPaginated::new(responses, total, page, per_page))
 }}
 
-/// GET — fetch one
+/// GET /api/v1/{table}/{{id}} — fetch one
 #[utoipa::path(
     get,
     path = "/api/v1/{table}/{{id}}",
@@ -352,14 +368,14 @@ pub async fn list(
     tag = "{pascal}"
 )]
 pub async fn get(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {{
     let row = sqlx::query_as::<_, {pascal}>(
-        "SELECT * FROM {pg_schema}.{table} WHERE id = $1"
+        "SELECT * FROM {pg_schema}.{table} WHERE id = $1",
     )
     .bind(id)
-    .fetch_optional(&pool)
+    .fetch_optional(&state.db)
     .await?
     .ok_or_else(|| AppError::NotFound(format!("{pascal} {{id}} not found")))?;
 
@@ -367,7 +383,7 @@ pub async fn get(
     Ok(ApiSuccess::ok(response))
 }}
 
-/// PUT — update
+/// PUT /api/v1/{table}/{{id}} — update
 #[utoipa::path(
     put,
     path = "/api/v1/{table}/{{id}}",
@@ -380,22 +396,24 @@ pub async fn get(
     tag = "{pascal}"
 )]
 pub async fn update(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(body): Json<Update{pascal}Request>,
 ) -> Result<impl IntoResponse, AppError> {{
     let row = sqlx::query_as::<_, {pascal}>(
-        "UPDATE {pg_schema}.{table}
-         SET    name       = COALESCE($2, name),
-                is_active  = COALESCE($3, is_active),
-                updated_at = NOW()
-         WHERE  id = $1
-         RETURNING *"
+        r#"
+        UPDATE {pg_schema}.{table}
+        SET    name       = COALESCE($2, name),
+               is_active  = COALESCE($3, is_active),
+               updated_at = NOW()
+        WHERE  id = $1
+        RETURNING *
+        "#,
     )
     .bind(id)
     .bind(&body.name)
     .bind(body.is_active)
-    .fetch_optional(&pool)
+    .fetch_optional(&state.db)
     .await?
     .ok_or_else(|| AppError::NotFound(format!("{pascal} {{id}} not found")))?;
 
@@ -403,7 +421,7 @@ pub async fn update(
     Ok(ApiSuccess::ok(response))
 }}
 
-/// DELETE — delete
+/// DELETE /api/v1/{table}/{{id}} — delete
 #[utoipa::path(
     delete,
     path = "/api/v1/{table}/{{id}}",
@@ -415,15 +433,13 @@ pub async fn update(
     tag = "{pascal}"
 )]
 pub async fn delete(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {{
-    let result = sqlx::query(
-        "DELETE FROM {pg_schema}.{table} WHERE id = $1"
-    )
-    .bind(id)
-    .execute(&pool)
-    .await?;
+    let result = sqlx::query("DELETE FROM {pg_schema}.{table} WHERE id = $1")
+        .bind(id)
+        .execute(&state.db)
+        .await?;
 
     if result.rows_affected() == 0 {{
         return Err(AppError::NotFound(format!("{pascal} {{id}} not found")));
@@ -431,7 +447,7 @@ pub async fn delete(
 
     Ok(ApiMessage::deleted("{pascal}"))
 }}
-"#
+"##
     )
 }
 
@@ -544,7 +560,7 @@ fn main() -> Result<()> {
 
     let schema = pg_schema.unwrap_or_else(|| app.clone());
     let pascal = snake_to_pascal(&app);
-    let _table = pluralize(&app);
+    let table  = pluralize(&app);
 
     println!("\n{BLD}╔══════════════════════════════════════╗");
     println!("║  cargo startapp                     ║");
@@ -553,6 +569,7 @@ fn main() -> Result<()> {
     println!("  {CYN}App name  :{RST}  {BLD}{app}{RST}");
     println!("  {CYN}PG schema :{RST}  {BLD}{schema}{RST}");
     println!("  {CYN}Struct    :{RST}  {BLD}{pascal}{RST}");
+    println!("  {CYN}Route base:{RST}  {BLD}/api/v1/{table}{RST}");
     println!();
 
     let root = PathBuf::from(MANIFEST_DIR);
@@ -572,20 +589,15 @@ fn main() -> Result<()> {
     println!("{CYN}Creating app files...{RST}");
     fs::create_dir_all(&app_dir)?;
 
-    // (filename, generator_fn, uses_schema_param)
-    let files: &[(&str, fn(&str, &str) -> String, bool)] = &[
-        ("mod.rs",     |a, _| gen_mod_rs(a),          false),
-        ("models.rs",  gen_models_rs,                   true),
-        ("schema.rs",  gen_schema_rs,                   true),
-        ("handler.rs", gen_handler_rs,                  true),
+    let files: &[(&str, fn(&str, &str) -> String)] = &[
+        ("mod.rs",      gen_mod_rs),
+        ("models.rs",   gen_models_rs),
+        ("schemas.rs",  gen_schemas_rs),
+        ("handlers.rs", gen_handlers_rs),
     ];
 
-    for (filename, gen_fn, uses_schema) in files {
-        let content = if *uses_schema {
-            gen_fn(&app, &schema)
-        } else {
-            gen_fn(&app, "")
-        };
+    for (filename, gen_fn) in files {
+        let content = gen_fn(&app, &schema);
         let file_path = app_dir.join(filename);
         fs::write(&file_path, &content)?;
         println!(
@@ -611,33 +623,42 @@ fn main() -> Result<()> {
     save_registry(&registry)?;
     println!("  {GRN}✓{RST}  {BLD}.apps.json{RST}  {DIM}← app registry updated{RST}");
 
-    // ── 4. Next steps ─────────────────────────────────────────────────────────
+    // ── 4. Summary ────────────────────────────────────────────────────────────
     println!();
     println!("{GRN}{BLD}✓  App '{app}' created successfully!{RST}");
     println!();
-    println!("{BLD}App structure:{RST}");
+    println!("{BLD}Structure:{RST}");
     println!("  {DIM}src/{app}/{RST}");
     println!("  {DIM}├── {RST}{BLD}mod.rs{RST}       {DIM}— module exports & route wiring{RST}");
     println!("  {DIM}├── {RST}{BLD}models.rs{RST}    {DIM}— database models (sqlx::FromRow){RST}");
-    println!("  {DIM}├── {RST}{BLD}schema.rs{RST}    {DIM}— request/response DTOs (data contracts){RST}");
-    println!("  {DIM}└── {RST}{BLD}handler.rs{RST}   {DIM}— API handlers & business logic{RST}");
+    println!("  {DIM}├── {RST}{BLD}schemas.rs{RST}   {DIM}— request/response DTOs (data contracts){RST}");
+    println!("  {DIM}└── {RST}{BLD}handlers.rs{RST}  {DIM}— API handlers & business logic{RST}");
+    println!();
+    println!("{BLD}mod.rs already wires the routes — add to main.rs router:{RST}");
+    println!();
+    println!("    {DIM}// src/main.rs{RST}");
+    println!("    .merge({app}::routes())");
+    println!();
+    println!("{BLD}Add to the OpenAPI paths() macro:{RST}");
+    println!();
+    println!("    {app}::handlers::create,");
+    println!("    {app}::handlers::list,");
+    println!("    {app}::handlers::get,");
+    println!("    {app}::handlers::update,");
+    println!("    {app}::handlers::delete,");
+    println!();
+    println!("{BLD}Add to the OpenAPI components(schemas()) macro:{RST}");
+    println!();
+    println!("    {app}::{pascal},");
+    println!("    {app}::Create{pascal}Request,");
+    println!("    {app}::Update{pascal}Request,");
+    println!("    {app}::{pascal}Response,");
     println!();
     println!("{BLD}Next steps:{RST}");
-    println!("  {DIM}1.{RST}  Edit    {BLD}src/{app}/models.rs{RST}    — add your DB fields");
-    println!("  {DIM}2.{RST}  Edit    {BLD}src/{app}/schema.rs{RST}    — define request/response types");
-    println!("  {DIM}3.{RST}  Run     {BLD}cargo makemigrations{RST}    — generate SQL");
-    println!("  {DIM}4.{RST}  Run     {BLD}cargo migrate{RST}            — apply to database");
-    println!("  {DIM}5.{RST}  Wire    {BLD}src/{app}/handler.rs{RST}   into your router:");
-    println!();
-    println!("       {DIM}// in main.rs — add to the app builder:{RST}");
-    println!("       .merge({app}::routes())");
-    println!();
-    println!("       {DIM}// in main.rs — add to OpenAPI schema:{RST}");
-    println!("       {app}::handler::create,");
-    println!("       {app}::handler::list,");
-    println!("       {app}::handler::get,");
-    println!("       {app}::handler::update,");
-    println!("       {app}::handler::delete,");
+    println!("  {DIM}1.{RST}  Edit  {BLD}src/{app}/models.rs{RST}   — add your DB fields");
+    println!("  {DIM}2.{RST}  Edit  {BLD}src/{app}/schemas.rs{RST}  — adjust request/response types");
+    println!("  {DIM}3.{RST}  Run   {BLD}cargo makemigrations{RST}  — generate SQL migration");
+    println!("  {DIM}4.{RST}  Run   {BLD}cargo migrate{RST}         — apply to database");
     println!();
 
     Ok(())

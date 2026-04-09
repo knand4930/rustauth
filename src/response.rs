@@ -1,9 +1,8 @@
 // src/response.rs
 //
-// Generic, typed API response envelopes.
-// Apps should use these from their `schema.rs` or `handler.rs`:
+// Generic, typed API response envelopes used across all app handlers.
 //
-//   use crate::response::{ApiSuccess, ApiPaginated, ApiMessage};
+//   use crate::response::{ApiSuccess, ApiPaginated, ApiList, ApiMessage};
 //
 
 use axum::{http::StatusCode, response::IntoResponse, Json};
@@ -13,9 +12,9 @@ use serde::Serialize;
 
 #[derive(Debug, Serialize)]
 pub struct PaginationMeta {
-    pub total: i64,
-    pub page: i64,
-    pub per_page: i64,
+    pub total:       i64,
+    pub page:        i64,
+    pub per_page:    i64,
     pub total_pages: i64,
 }
 
@@ -36,7 +35,7 @@ impl PaginationMeta {
 #[derive(Debug, Serialize)]
 pub struct ApiSuccess<T: Serialize> {
     pub success: bool,
-    pub data: T,
+    pub data:    T,
 }
 
 impl<T: Serialize> ApiSuccess<T> {
@@ -60,8 +59,8 @@ impl<T: Serialize> IntoResponse for ApiSuccess<T> {
 /// `{ "success": true, "data": [T], "pagination": { ... } }`
 #[derive(Debug, Serialize)]
 pub struct ApiPaginated<T: Serialize> {
-    pub success: bool,
-    pub data: Vec<T>,
+    pub success:    bool,
+    pub data:       Vec<T>,
     pub pagination: PaginationMeta,
 }
 
@@ -70,7 +69,7 @@ impl<T: Serialize> ApiPaginated<T> {
         (
             StatusCode::OK,
             Json(Self {
-                success: true,
+                success:    true,
                 data,
                 pagination: PaginationMeta::new(total, page, per_page),
             }),
@@ -84,8 +83,8 @@ impl<T: Serialize> ApiPaginated<T> {
 #[derive(Debug, Serialize)]
 pub struct ApiList<T: Serialize> {
     pub success: bool,
-    pub data: Vec<T>,
-    pub count: usize,
+    pub data:    Vec<T>,
+    pub count:   usize,
 }
 
 impl<T: Serialize> ApiList<T> {
@@ -116,44 +115,6 @@ impl ApiMessage {
                 success: true,
                 message: format!("{resource} deleted successfully"),
             }),
-        )
-    }
-}
-
-// ─── Bulk operation response ─────────────────────────────────────────
-
-/// `{ "success": true, "message": "...", "affected": N }`
-#[derive(Debug, Serialize)]
-pub struct ApiBulk {
-    pub success: bool,
-    pub message: String,
-    pub affected: u64,
-}
-
-impl ApiBulk {
-    pub fn new(msg: impl Into<String>, affected: u64) -> (StatusCode, Json<Self>) {
-        (
-            StatusCode::OK,
-            Json(Self { success: true, message: msg.into(), affected }),
-        )
-    }
-}
-
-// ─── Patch response (returns updated fields only) ────────────────────
-
-/// `{ "success": true, "data": T, "updated_fields": [...] }`
-#[derive(Debug, Serialize)]
-pub struct ApiPatched<T: Serialize> {
-    pub success: bool,
-    pub data: T,
-    pub updated_fields: Vec<String>,
-}
-
-impl<T: Serialize> ApiPatched<T> {
-    pub fn new(data: T, fields: Vec<String>) -> (StatusCode, Json<Self>) {
-        (
-            StatusCode::OK,
-            Json(Self { success: true, data, updated_fields: fields }),
         )
     }
 }
