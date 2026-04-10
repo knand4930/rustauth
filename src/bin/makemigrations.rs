@@ -15,36 +15,30 @@ use std::path::{Path, PathBuf};
 
 const MANIFEST_DIR: &str = env!("CARGO_MANIFEST_DIR");
 
-// We no longer use a hardcoded MODEL_FILES. It will be discovered dynamically via src/models/mod.rs
+// We discover app models directly from src/apps/*/models.rs.
 
 fn discover_models(src_dir: &Path) -> Result<Vec<(String, String)>> {
-    let mod_rs = src_dir.join("models").join("mod.rs");
-    if !mod_rs.exists() {
+    let apps_dir = src_dir.join("apps");
+    if !apps_dir.exists() {
         return Ok(vec![]);
     }
-    let content = fs::read_to_string(&mod_rs)?;
+
+    let mut entries: Vec<_> = fs::read_dir(&apps_dir)?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.path().is_dir())
+        .collect();
+    entries.sort_by_key(|entry| entry.file_name());
+
     let mut files = vec![];
-    for line in content.lines() {
-        let line = line.trim();
-        if line.starts_with("pub use crate::") && line.contains("::models") {
-            let parts: Vec<&str> = line.split("::").collect();
-            if parts.len() >= 3 {
-                let module = parts[1];
-                let path = format!("{}/models.rs", module);
-                files.push((path, module.to_string()));
-            }
+    for entry in entries {
+        let module = entry.file_name().to_string_lossy().to_string();
+        let model_path = entry.path().join("models.rs");
+        if model_path.exists() {
+            files.push((format!("apps/{module}/models.rs"), module));
         }
     }
-    
-    let mut unique_files = vec![];
-    let mut seen = std::collections::HashSet::new();
-    for entry in files {
-        if !seen.contains(&entry.0) {
-            seen.insert(entry.0.clone());
-            unique_files.push(entry);
-        }
-    }
-    Ok(unique_files)
+
+    Ok(files)
 }
 
 // ── ANSI colours ──────────────────────────────────────────────────────────────
@@ -62,24 +56,24 @@ const MAG: &str = "\x1b[35m";
 
 #[derive(Debug, Clone)]
 struct ParsedField {
-    name:       String,
-    sql_type:   String,
-    nullable:   bool,
-    is_pk:      bool,
-    is_unique:  bool,
-    is_index:   bool,
-    line:       usize, // 1-based line in source file
+    name: String,
+    sql_type: String,
+    nullable: bool,
+    is_pk: bool,
+    is_unique: bool,
+    is_index: bool,
+    line: usize, // 1-based line in source file
 }
 
 #[derive(Debug, Clone)]
 struct ParsedTable {
-    schema:      String,
-    table:       String,
+    schema: String,
+    table: String,
     struct_name: String,
     source_file: String,
     #[allow(dead_code)]
     source_line: usize,
-    fields:      Vec<ParsedField>,
+    fields: Vec<ParsedField>,
 }
 
 impl ParsedTable {
@@ -89,27 +83,30 @@ impl ParsedTable {
 }
 
 #[derive(Debug)]
-enum Severity { Error, Warning }
+enum Severity {
+    Error,
+    Warning,
+}
 
 #[derive(Debug)]
 struct Issue {
     severity: Severity,
-    file:     String,
-    line:     usize,
-    message:  String,
-    hint:     Option<String>,
+    file: String,
+    line: usize,
+    message: String,
+    hint: Option<String>,
 }
 
 // ── Persisted schema state ────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ColState {
-    name:      String,
-    sql_type:  String,
-    nullable:  bool,
-    is_pk:     bool,
+    name: String,
+    sql_type: String,
+    nullable: bool,
+    is_pk: bool,
     is_unique: bool,
-    is_index:  bool,
+    is_index: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -131,28 +128,44 @@ fn rust_to_sql(ty: &str) -> (&'static str, bool) {
         (ty, false)
     };
     let sql = match inner.trim() {
-        "Uuid"              => "UUID",
-        "String"            => "VARCHAR",
-        "bool"              => "BOOLEAN",
-        "i16"               => "SMALLINT",
-        "i32"               => "INTEGER",
-        "i64" | "i128"      => "BIGINT",
-        "f32" | "f64"       => "DOUBLE PRECISION",
-        "DateTime<Utc>"     => "TIMESTAMPTZ",
+        "Uuid" => "UUID",
+        "String" => "VARCHAR",
+        "bool" => "BOOLEAN",
+        "i16" => "SMALLINT",
+        "i32" => "INTEGER",
+        "i64" | "i128" => "BIGINT",
+        "f32" | "f64" => "DOUBLE PRECISION",
+        "DateTime<Utc>" => "TIMESTAMPTZ",
         "serde_json::Value" => "JSONB",
-        "Vec<String>"       => "TEXT[]",
-        _                   => "TEXT",
+        "Vec<String>" => "TEXT[]",
+        _ => "TEXT",
     };
     (sql, nullable)
 }
 
 fn is_known_rust_type(ty: &str) -> bool {
-    matches!(ty.trim(),
-        "Uuid" | "String" | "bool"
-        | "i8" | "i16" | "i32" | "i64" | "i128"
-        | "u8" | "u16" | "u32" | "u64" | "usize" | "isize"
-        | "f32" | "f64" | "char"
-        | "DateTime<Utc>" | "serde_json::Value" | "Vec<String>"
+    matches!(
+        ty.trim(),
+        "Uuid"
+            | "String"
+            | "bool"
+            | "i8"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "usize"
+            | "isize"
+            | "f32"
+            | "f64"
+            | "char"
+            | "DateTime<Utc>"
+            | "serde_json::Value"
+            | "Vec<String>"
     )
 }
 
@@ -161,17 +174,27 @@ fn is_known_rust_type(ty: &str) -> bool {
 fn camel_to_snake(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 4);
     for (i, c) in s.chars().enumerate() {
-        if c.is_uppercase() && i > 0 { out.push('_'); }
+        if c.is_uppercase() && i > 0 {
+            out.push('_');
+        }
         out.push(c.to_ascii_lowercase());
     }
     out
 }
 
 fn pluralize(s: &str) -> String {
-    if s.ends_with("ss") || s.ends_with('x') || s.ends_with('z')
-        || s.ends_with("ch") || s.ends_with("sh") { format!("{s}es") }
-    else if s.ends_with('s') { s.to_string() }
-    else { format!("{s}s") }
+    if s.ends_with("ss")
+        || s.ends_with('x')
+        || s.ends_with('z')
+        || s.ends_with("ch")
+        || s.ends_with("sh")
+    {
+        format!("{s}es")
+    } else if s.ends_with('s') {
+        s.to_string()
+    } else {
+        format!("{s}s")
+    }
 }
 
 fn struct_to_table(name: &str) -> String {
@@ -181,11 +204,16 @@ fn struct_to_table(name: &str) -> String {
 // ── FK registry + resolution ──────────────────────────────────────────────────
 
 fn build_fk_registry(tables: &[ParsedTable]) -> HashMap<String, String> {
-    tables.iter().map(|t| (t.table.clone(), t.full_name())).collect()
+    tables
+        .iter()
+        .map(|t| (t.table.clone(), t.full_name()))
+        .collect()
 }
 
 fn resolve_fk(field: &str, sql_type: &str, reg: &HashMap<String, String>) -> Option<String> {
-    if field == "id" || !field.ends_with("_id") || sql_type != "UUID" { return None; }
+    if field == "id" || !field.ends_with("_id") || sql_type != "UUID" {
+        return None;
+    }
     let base = &field[..field.len() - 3];
     reg.get(&pluralize(base)).cloned()
 }
@@ -193,9 +221,9 @@ fn resolve_fk(field: &str, sql_type: &str, reg: &HashMap<String, String>) -> Opt
 // ── Parser ────────────────────────────────────────────────────────────────────
 
 fn parse_model_file(path: &Path, default_schema: &str) -> Result<(Vec<ParsedTable>, Vec<Issue>)> {
-    let src = fs::read_to_string(path)
-        .with_context(|| format!("Cannot read {}", path.display()))?;
-    
+    let src =
+        fs::read_to_string(path).with_context(|| format!("Cannot read {}", path.display()))?;
+
     let mut actual_schema = default_schema.to_string();
     for line in src.lines() {
         if line.contains("@schema ") {
@@ -205,21 +233,24 @@ fn parse_model_file(path: &Path, default_schema: &str) -> Result<(Vec<ParsedTabl
             }
         }
     }
-    
+
     Ok(parse_structs(&src, &actual_schema, &path.to_string_lossy()))
 }
 
 fn parse_structs(src: &str, schema: &str, file: &str) -> (Vec<ParsedTable>, Vec<Issue>) {
     let lines: Vec<&str> = src.lines().collect();
-    let mut tables  = vec![];
-    let mut issues  = vec![];
+    let mut tables = vec![];
+    let mut issues = vec![];
     let mut seen_structs: HashMap<String, usize> = HashMap::new();
     let mut i = 0usize;
 
     while i < lines.len() {
         let trimmed = lines[i].trim();
 
-        if !trimmed.starts_with("pub struct ") { i += 1; continue; }
+        if !trimmed.starts_with("pub struct ") {
+            i += 1;
+            continue;
+        }
 
         let after = &trimmed["pub struct ".len()..];
         let name_end = after
@@ -241,8 +272,12 @@ fn parse_structs(src: &str, schema: &str, file: &str) -> (Vec<ParsedTable>, Vec<
         if let Some(&prev) = seen_structs.get(sname) {
             issues.push(Issue {
                 severity: Severity::Error,
-                file: file.to_string(), line: struct_line,
-                message: format!("Duplicate struct '{}' (also declared at line {})", sname, prev),
+                file: file.to_string(),
+                line: struct_line,
+                message: format!(
+                    "Duplicate struct '{}' (also declared at line {})",
+                    sname, prev
+                ),
                 hint: None,
             });
         }
@@ -250,8 +285,13 @@ fn parse_structs(src: &str, schema: &str, file: &str) -> (Vec<ParsedTable>, Vec<
 
         // Find opening brace
         let mut brace_i = i;
-        while brace_i < lines.len() && !lines[brace_i].contains('{') { brace_i += 1; }
-        if brace_i >= lines.len() { i += 1; continue; }
+        while brace_i < lines.len() && !lines[brace_i].contains('{') {
+            brace_i += 1;
+        }
+        if brace_i >= lines.len() {
+            i += 1;
+            continue;
+        }
 
         // Scan body until depth == 0
         let mut depth = 0i32;
@@ -263,9 +303,12 @@ fn parse_structs(src: &str, schema: &str, file: &str) -> (Vec<ParsedTable>, Vec<
             let l = lines[j];
             for ch in l.chars() {
                 match ch {
-                    '{' => { depth += 1; started = true; }
+                    '{' => {
+                        depth += 1;
+                        started = true;
+                    }
                     '}' => depth -= 1,
-                    _   => {}
+                    _ => {}
                 }
             }
             if started && j > brace_i {
@@ -279,7 +322,9 @@ fn parse_structs(src: &str, schema: &str, file: &str) -> (Vec<ParsedTable>, Vec<
                     }
                 }
             }
-            if started && depth == 0 { break; }
+            if started && depth == 0 {
+                break;
+            }
             j += 1;
         }
 
@@ -292,34 +337,41 @@ fn parse_structs(src: &str, schema: &str, file: &str) -> (Vec<ParsedTable>, Vec<
         for &(line_num, raw) in &body {
             let t = raw.trim();
             if t.starts_with("//") {
-                if t.contains("@unique") { pending_unique = true; }
-                if t.contains("@index") { pending_index = true; }
+                if t.contains("@unique") {
+                    pending_unique = true;
+                }
+                if t.contains("@index") {
+                    pending_index = true;
+                }
                 continue;
             }
-            
-            let l = {
-                t.find("//").map(|idx| &t[..idx]).unwrap_or(t).trim()
-            };
+
+            let l = { t.find("//").map(|idx| &t[..idx]).unwrap_or(t).trim() };
             if !l.starts_with("pub ") {
                 // reset flags if it's not an attribute
                 if !l.is_empty() && !l.starts_with("#[") {
                     pending_unique = false;
                     pending_index = false;
                 }
-                continue; 
+                continue;
             }
             let rest = l["pub ".len()..].trim_start();
-            let Some(colon) = rest.find(':') else { continue };
+            let Some(colon) = rest.find(':') else {
+                continue;
+            };
 
             let fname = rest[..colon].trim().to_string();
             let ftype = rest[colon + 1..].trim().trim_end_matches(',').to_string();
 
-            if fname.is_empty() || ftype.is_empty() || fname.contains(' ') { continue; }
+            if fname.is_empty() || ftype.is_empty() || fname.contains(' ') {
+                continue;
+            }
 
             if let Some(&prev) = seen_fields.get(&fname) {
                 issues.push(Issue {
                     severity: Severity::Error,
-                    file: file.to_string(), line: line_num,
+                    file: file.to_string(),
+                    line: line_num,
                     message: format!(
                         "Duplicate field '{}' in struct '{}' (first at line {})",
                         fname, sname, prev
@@ -341,7 +393,8 @@ fn parse_structs(src: &str, schema: &str, file: &str) -> (Vec<ParsedTable>, Vec<
             if sql_type == "TEXT" && !is_known_rust_type(inner.trim()) {
                 issues.push(Issue {
                     severity: Severity::Warning,
-                    file: file.to_string(), line: line_num,
+                    file: file.to_string(),
+                    line: line_num,
                     message: format!(
                         "Unknown type '{}' for field '{}' — mapped to TEXT",
                         inner, fname
@@ -355,10 +408,15 @@ fn parse_structs(src: &str, schema: &str, file: &str) -> (Vec<ParsedTable>, Vec<
             let is_index = pending_index;
             pending_unique = false;
             pending_index = false;
-            
+
             fields.push(ParsedField {
-                name: fname, sql_type: sql_type.to_string(),
-                nullable, is_pk, is_unique, is_index, line: line_num,
+                name: fname,
+                sql_type: sql_type.to_string(),
+                nullable,
+                is_pk,
+                is_unique,
+                is_index,
+                line: line_num,
             });
         }
 
@@ -366,7 +424,8 @@ fn parse_structs(src: &str, schema: &str, file: &str) -> (Vec<ParsedTable>, Vec<
         if !fields.is_empty() && !fields.iter().any(|f| f.is_pk) {
             issues.push(Issue {
                 severity: Severity::Error,
-                file: file.to_string(), line: struct_line,
+                file: file.to_string(),
+                line: struct_line,
                 message: format!("'{}' has no primary key field", sname),
                 hint: Some("Add:  pub id: Uuid,".to_string()),
             });
@@ -375,7 +434,7 @@ fn parse_structs(src: &str, schema: &str, file: &str) -> (Vec<ParsedTable>, Vec<
         if !fields.is_empty() {
             tables.push(ParsedTable {
                 schema: schema.to_string(),
-                table:  struct_to_table(sname),
+                table: struct_to_table(sname),
                 struct_name: sname.to_string(),
                 source_file: file.to_string(),
                 source_line: struct_line,
@@ -398,8 +457,8 @@ fn validate_fks(tables: &[ParsedTable], reg: &HashMap<String, String>) -> Vec<Is
             if f.name == "id" || !f.name.ends_with("_id") || f.sql_type != "UUID" {
                 continue;
             }
-            let base    = &f.name[..f.name.len() - 3];
-            let target  = pluralize(base);
+            let base = &f.name[..f.name.len() - 3];
+            let target = pluralize(base);
             if !reg.contains_key(&target) {
                 issues.push(Issue {
                     severity: Severity::Warning,
@@ -429,8 +488,12 @@ fn topo_sort(tables: Vec<ParsedTable>, reg: &HashMap<String, String>) -> Vec<Par
     while progress {
         progress = false;
         for t in &tables {
-            if placed.contains_key(&t.full_name()) { continue; }
-            let all_deps_placed = t.fields.iter()
+            if placed.contains_key(&t.full_name()) {
+                continue;
+            }
+            let all_deps_placed = t
+                .fields
+                .iter()
                 .filter_map(|f| resolve_fk(&f.name, &f.sql_type, reg))
                 .filter(|d| d != &t.full_name())
                 .all(|d| placed.contains_key(&d));
@@ -443,7 +506,9 @@ fn topo_sort(tables: Vec<ParsedTable>, reg: &HashMap<String, String>) -> Vec<Par
     }
     // Append any unresolved (circular FK)
     for t in &tables {
-        if !placed.contains_key(&t.full_name()) { result.push(t.clone()); }
+        if !placed.contains_key(&t.full_name()) {
+            result.push(t.clone());
+        }
     }
     result
 }
@@ -455,8 +520,12 @@ fn col_sql(f: &ParsedField, reg: &HashMap<String, String>) -> String {
         return format!("    {} UUID PRIMARY KEY DEFAULT gen_random_uuid()", f.name);
     }
     let mut parts = vec![f.name.clone(), f.sql_type.clone()];
-    if !f.nullable { parts.push("NOT NULL".to_string()); }
-    if f.is_unique { parts.push("UNIQUE".to_string()); }
+    if !f.nullable {
+        parts.push("NOT NULL".to_string());
+    }
+    if f.is_unique {
+        parts.push("UNIQUE".to_string());
+    }
     if matches!(f.name.as_str(), "created_at" | "updated_at") {
         parts.push("DEFAULT NOW()".to_string());
     }
@@ -467,21 +536,26 @@ fn col_sql(f: &ParsedField, reg: &HashMap<String, String>) -> String {
 }
 
 fn create_table_sql(t: &ParsedTable, reg: &HashMap<String, String>) -> String {
-    let cols = t.fields.iter().map(|f| col_sql(f, reg)).collect::<Vec<_>>().join(",\n");
+    let cols = t
+        .fields
+        .iter()
+        .map(|f| col_sql(f, reg))
+        .collect::<Vec<_>>()
+        .join(",\n");
     format!("CREATE TABLE {}.{} (\n{cols}\n);", t.schema, t.table)
 }
 
 // ── Diff engine ───────────────────────────────────────────────────────────────
 
 struct Diff {
-    up:      Vec<String>,
-    down:    Vec<String>,
+    up: Vec<String>,
+    down: Vec<String>,
     summary: Vec<String>, // human-readable change list
 }
 
 fn compute_diff(tables: &[ParsedTable], prev: &SchemaState, reg: &HashMap<String, String>) -> Diff {
-    let mut up      = vec![];
-    let mut down    = vec![];
+    let mut up = vec![];
+    let mut down = vec![];
     let mut summary = vec![];
 
     // Schema CREATE (idempotent)
@@ -507,17 +581,33 @@ fn compute_diff(tables: &[ParsedTable], prev: &SchemaState, reg: &HashMap<String
                 up.push(create_table_sql(t, reg));
                 for f in &t.fields {
                     if f.is_index {
-                        up.push(format!("CREATE INDEX IF NOT EXISTS idx_{tbl}_{col} ON {key} ({col});", tbl=t.table, col=f.name, key=key));
-                        down.push(format!("DROP INDEX IF EXISTS {schema}.idx_{tbl}_{col};", schema=t.schema, tbl=t.table, col=f.name));
+                        up.push(format!(
+                            "CREATE INDEX IF NOT EXISTS idx_{tbl}_{col} ON {key} ({col});",
+                            tbl = t.table,
+                            col = f.name,
+                            key = key
+                        ));
+                        down.push(format!(
+                            "DROP INDEX IF EXISTS {schema}.idx_{tbl}_{col};",
+                            schema = t.schema,
+                            tbl = t.table,
+                            col = f.name
+                        ));
                     }
                 }
-                down.push(format!("DROP TABLE IF EXISTS {}.{} CASCADE;", t.schema, t.table));
+                down.push(format!(
+                    "DROP TABLE IF EXISTS {}.{} CASCADE;",
+                    t.schema, t.table
+                ));
             }
 
             // ── Existing table: check columns ──────────────────────────────
             Some(prev_t) => {
-                let prev_map: HashMap<&str, &ColState> =
-                    prev_t.columns.iter().map(|c| (c.name.as_str(), c)).collect();
+                let prev_map: HashMap<&str, &ColState> = prev_t
+                    .columns
+                    .iter()
+                    .map(|c| (c.name.as_str(), c))
+                    .collect();
                 let mut header_printed = false;
 
                 let mut print_header = |summary: &mut Vec<String>| {
@@ -539,7 +629,8 @@ fn compute_diff(tables: &[ParsedTable], prev: &SchemaState, reg: &HashMap<String
                             ));
                             up.push(format!("ALTER TABLE {key} ADD COLUMN {clause};"));
                             down.push(format!(
-                                "ALTER TABLE {key} DROP COLUMN IF EXISTS {};", f.name
+                                "ALTER TABLE {key} DROP COLUMN IF EXISTS {};",
+                                f.name
                             ));
                         }
                         Some(pc) => {
@@ -556,14 +647,33 @@ fn compute_diff(tables: &[ParsedTable], prev: &SchemaState, reg: &HashMap<String
                             }
                             if !pc.is_unique && f.is_unique {
                                 print_header(&mut summary);
-                                summary.push(format!("    {YLW}~{RST} {BLD}{:<22}{RST}  {DIM}+unique{RST}", f.name));
-                                up.push(format!("ALTER TABLE {key} ADD UNIQUE ({col});", col=f.name));
+                                summary.push(format!(
+                                    "    {YLW}~{RST} {BLD}{:<22}{RST}  {DIM}+unique{RST}",
+                                    f.name
+                                ));
+                                up.push(format!(
+                                    "ALTER TABLE {key} ADD UNIQUE ({col});",
+                                    col = f.name
+                                ));
                             }
                             if !pc.is_index && f.is_index {
                                 print_header(&mut summary);
-                                summary.push(format!("    {YLW}~{RST} {BLD}{:<22}{RST}  {DIM}+index{RST}", f.name));
-                                up.push(format!("CREATE INDEX IF NOT EXISTS idx_{tbl}_{col} ON {key} ({col});", tbl=t.table, col=f.name, key=key));
-                                down.push(format!("DROP INDEX IF EXISTS {schema}.idx_{tbl}_{col};", schema=t.schema, tbl=t.table, col=f.name));
+                                summary.push(format!(
+                                    "    {YLW}~{RST} {BLD}{:<22}{RST}  {DIM}+index{RST}",
+                                    f.name
+                                ));
+                                up.push(format!(
+                                    "CREATE INDEX IF NOT EXISTS idx_{tbl}_{col} ON {key} ({col});",
+                                    tbl = t.table,
+                                    col = f.name,
+                                    key = key
+                                ));
+                                down.push(format!(
+                                    "DROP INDEX IF EXISTS {schema}.idx_{tbl}_{col};",
+                                    schema = t.schema,
+                                    tbl = t.table,
+                                    col = f.name
+                                ));
                             }
                         }
                     }
@@ -599,28 +709,39 @@ fn compute_diff(tables: &[ParsedTable], prev: &SchemaState, reg: &HashMap<String
 // ── State I/O ─────────────────────────────────────────────────────────────────
 
 fn state_path() -> PathBuf {
-    PathBuf::from(MANIFEST_DIR).join("migrations").join(".schema_state.json")
+    PathBuf::from(MANIFEST_DIR)
+        .join("migrations")
+        .join(".schema_state.json")
 }
 
 fn load_state() -> SchemaState {
     let p = state_path();
-    if !p.exists() { return SchemaState::default(); }
+    if !p.exists() {
+        return SchemaState::default();
+    }
     serde_json::from_str(&fs::read_to_string(p).unwrap_or_default()).unwrap_or_default()
 }
 
 fn save_state(tables: &[ParsedTable]) -> Result<()> {
     let mut state = SchemaState::default();
     for t in tables {
-        state.tables.insert(t.full_name(), TableState {
-            columns: t.fields.iter().map(|f| ColState {
-                name:     f.name.clone(),
-                sql_type: f.sql_type.clone(),
-                nullable: f.nullable,
-                is_pk:    f.is_pk,
-                is_unique: f.is_unique,
-                is_index:  f.is_index,
-            }).collect(),
-        });
+        state.tables.insert(
+            t.full_name(),
+            TableState {
+                columns: t
+                    .fields
+                    .iter()
+                    .map(|f| ColState {
+                        name: f.name.clone(),
+                        sql_type: f.sql_type.clone(),
+                        nullable: f.nullable,
+                        is_pk: f.is_pk,
+                        is_unique: f.is_unique,
+                        is_index: f.is_index,
+                    })
+                    .collect(),
+            },
+        );
     }
     fs::write(state_path(), serde_json::to_string_pretty(&state)?)?;
     Ok(())
@@ -633,14 +754,15 @@ fn migrations_dir() -> PathBuf {
 }
 
 fn write_migration(diff: &Diff, label: &str) -> Result<PathBuf> {
-    let ts  = Utc::now().format("%Y%m%d%H%M%S");
+    let ts = Utc::now().format("%Y%m%d%H%M%S");
     let dir = migrations_dir().join(format!("{ts}_{label}"));
     fs::create_dir_all(&dir)?;
     fs::write(dir.join("up.sql"), diff.up.join("\n\n"))?;
     fs::write(
         dir.join("down.sql"),
         if diff.down.is_empty() {
-            "-- No automatic down migration.\n-- Add DROP statements manually if needed.".to_string()
+            "-- No automatic down migration.\n-- Add DROP statements manually if needed."
+                .to_string()
         } else {
             diff.down.join("\n\n")
         },
@@ -662,7 +784,7 @@ fn main() -> Result<()> {
     println!("{CYN}Scanning model files...{RST}");
     let src_dir = PathBuf::from(MANIFEST_DIR).join("src");
     let mut all_tables: Vec<ParsedTable> = vec![];
-    let mut all_issues: Vec<Issue>       = vec![];
+    let mut all_issues: Vec<Issue> = vec![];
 
     let model_files = match discover_models(&src_dir) {
         Ok(files) => files,
@@ -694,8 +816,14 @@ fn main() -> Result<()> {
     // ── 3. Show validation results ────────────────────────────────────────────
     println!("\n{CYN}Validating models...{RST}");
 
-    let errors:   Vec<&Issue> = all_issues.iter().filter(|i| matches!(i.severity, Severity::Error)).collect();
-    let warnings: Vec<&Issue> = all_issues.iter().filter(|i| matches!(i.severity, Severity::Warning)).collect();
+    let errors: Vec<&Issue> = all_issues
+        .iter()
+        .filter(|i| matches!(i.severity, Severity::Error))
+        .collect();
+    let warnings: Vec<&Issue> = all_issues
+        .iter()
+        .filter(|i| matches!(i.severity, Severity::Warning))
+        .collect();
 
     for w in &warnings {
         let short_file = w.file.rsplit("src/").next().unwrap_or(&w.file);
@@ -726,18 +854,24 @@ fn main() -> Result<()> {
     if warnings.is_empty() {
         println!("  {GRN}✓  No issues found{RST}");
     } else {
-        println!("  {YLW}⚠  {} warning(s) — migration will still be generated{RST}", warnings.len());
+        println!(
+            "  {YLW}⚠  {} warning(s) — migration will still be generated{RST}",
+            warnings.len()
+        );
     }
 
     // ── 4. Diff ───────────────────────────────────────────────────────────────
-    let sorted   = topo_sort(all_tables, &fk_reg);
-    let prev     = load_state();
+    let sorted = topo_sort(all_tables, &fk_reg);
+    let prev = load_state();
     let is_first = prev.tables.is_empty();
 
     println!("\n{CYN}Detecting changes...{RST}");
     let diff = compute_diff(&sorted, &prev, &fk_reg);
 
-    let has_real = diff.up.iter().any(|s| !s.trim().starts_with("CREATE SCHEMA"));
+    let has_real = diff
+        .up
+        .iter()
+        .any(|s| !s.trim().starts_with("CREATE SCHEMA"));
     if !has_real {
         println!("  {GRN}✓  No changes detected — database is already up to date.{RST}\n");
         return Ok(());
@@ -751,7 +885,9 @@ fn main() -> Result<()> {
     let mig_dir = write_migration(&diff, label)?;
     save_state(&sorted)?;
 
-    let stmt_count = diff.up.iter()
+    let stmt_count = diff
+        .up
+        .iter()
         .filter(|s| !s.trim().starts_with("CREATE SCHEMA"))
         .count();
 

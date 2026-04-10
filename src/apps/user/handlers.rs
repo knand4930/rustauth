@@ -1,13 +1,13 @@
-// src/user/handlers.rs
+// src/apps/user/handlers.rs
 //
 // Business logic & API route handlers for the User app.
 // Uses: models.rs (DB) + schemas.rs (I/O) + crate::response (envelopes)
 //
 
 use axum::{
+    Json,
     extract::{Path, Query, State},
     response::IntoResponse,
-    Json,
 };
 use uuid::Uuid;
 use validator::Validate;
@@ -40,23 +40,22 @@ pub async fn register(
     State(state): State<AppState>,
     Json(body): Json<RegisterRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    body.validate().map_err(|e| AppError::BadRequest(e.to_string()))?;
+    body.validate()
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
-    let existing = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)",
-    )
-    .bind(&body.email)
-    .fetch_one(&state.db)
-    .await?;
+    let existing =
+        sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)")
+            .bind(&body.email)
+            .fetch_one(&state.db)
+            .await?;
 
     if existing {
         return Err(AppError::Conflict("Email already registered".to_string()));
     }
 
     use argon2::PasswordHasher;
-    let salt = argon2::password_hash::SaltString::generate(
-        &mut argon2::password_hash::rand_core::OsRng,
-    );
+    let salt =
+        argon2::password_hash::SaltString::generate(&mut argon2::password_hash::rand_core::OsRng);
     let password_hash = argon2::Argon2::default()
         .hash_password(body.password.as_bytes(), &salt)
         .map_err(|e| AppError::Internal(format!("Password hashing failed: {e}")))?
@@ -107,19 +106,18 @@ pub async fn login(
     State(state): State<AppState>,
     Json(body): Json<LoginRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    body.validate().map_err(|e| AppError::BadRequest(e.to_string()))?;
+    body.validate()
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
-    let user = sqlx::query_as::<_, User>(
-        "SELECT * FROM users WHERE email = $1 AND is_active = true",
-    )
-    .bind(&body.email)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or_else(|| AppError::Unauthorized("Invalid email or password".to_string()))?;
+    let user =
+        sqlx::query_as::<_, User>("SELECT * FROM users WHERE email = $1 AND is_active = true")
+            .bind(&body.email)
+            .fetch_optional(&state.db)
+            .await?
+            .ok_or_else(|| AppError::Unauthorized("Invalid email or password".to_string()))?;
 
-    let parsed_hash =
-        argon2::PasswordHash::new(user.password.as_deref().unwrap_or(""))
-            .map_err(|_| AppError::Unauthorized("Invalid email or password".to_string()))?;
+    let parsed_hash = argon2::PasswordHash::new(user.password.as_deref().unwrap_or(""))
+        .map_err(|_| AppError::Unauthorized("Invalid email or password".to_string()))?;
 
     argon2::PasswordVerifier::verify_password(
         &argon2::Argon2::default(),

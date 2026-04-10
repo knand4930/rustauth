@@ -1,4 +1,4 @@
-// src/user/schemas.rs
+// src/apps/user/schemas.rs
 //
 // Request & Response DTOs for the User app.
 // This is the data-contract layer (I/O) — separated from DB models and handlers.

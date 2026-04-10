@@ -1,4 +1,4 @@
-// src/user/mod.rs
+// src/apps/user/mod.rs
 
 pub mod handlers;
 pub mod models;
@@ -11,8 +11,8 @@ pub use schemas::{
 };
 
 use axum::{
-    routing::{delete, get, post, put},
     Router,
+    routing::{delete, get, post, put},
 };
 
 use crate::state::AppState;

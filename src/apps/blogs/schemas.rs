@@ -1,4 +1,4 @@
-// src/blogs/schemas.rs
+// src/apps/blogs/schemas.rs
 //
 // Request & Response DTOs for the Blogs app.
 //

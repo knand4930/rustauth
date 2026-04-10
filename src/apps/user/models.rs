@@ -1,4 +1,5 @@
-// src/user/models.rs
+// src/apps/user/models.rs
+// @schema user
 //
 // Database models ONLY — these map 1:1 to PostgreSQL tables.
 // Do NOT put request/response DTOs here; those belong in schema.rs.

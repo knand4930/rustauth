@@ -47,16 +47,17 @@ async fn applied_set(pool: &PgPool) -> Result<HashSet<String>> {
     let rows = sqlx::query("SELECT name FROM public._schema_migrations")
         .fetch_all(pool)
         .await?;
-    Ok(rows.into_iter().map(|r| r.get::<String, _>("name")).collect())
+    Ok(rows
+        .into_iter()
+        .map(|r| r.get::<String, _>("name"))
+        .collect())
 }
 
 async fn mark_applied(pool: &PgPool, name: &str) -> Result<()> {
-    sqlx::query(
-        "INSERT INTO public._schema_migrations (name) VALUES ($1) ON CONFLICT DO NOTHING",
-    )
-    .bind(name)
-    .execute(pool)
-    .await?;
+    sqlx::query("INSERT INTO public._schema_migrations (name) VALUES ($1) ON CONFLICT DO NOTHING")
+        .bind(name)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
@@ -95,8 +96,8 @@ fn migration_names() -> Result<Vec<String>> {
 // ── Risk detection ────────────────────────────────────────────────────────────
 
 struct RiskItem {
-    label:   &'static str,
-    level:   &'static str,  // "HIGH" | "MEDIUM"
+    label: &'static str,
+    level: &'static str, // "HIGH" | "MEDIUM"
     message: &'static str,
 }
 
@@ -104,19 +105,39 @@ fn detect_risks(sql: &str) -> Vec<RiskItem> {
     let up = sql.to_uppercase();
     let mut risks = vec![];
     if up.contains("DROP TABLE") {
-        risks.push(RiskItem { label: "DROP TABLE",       level: "HIGH",   message: "destroys table and all its data" });
+        risks.push(RiskItem {
+            label: "DROP TABLE",
+            level: "HIGH",
+            message: "destroys table and all its data",
+        });
     }
     if up.contains("DROP COLUMN") {
-        risks.push(RiskItem { label: "DROP COLUMN",      level: "HIGH",   message: "permanently removes column data" });
+        risks.push(RiskItem {
+            label: "DROP COLUMN",
+            level: "HIGH",
+            message: "permanently removes column data",
+        });
     }
     if up.contains("ALTER COLUMN") && up.contains("TYPE") {
-        risks.push(RiskItem { label: "ALTER COLUMN TYPE",level: "MEDIUM", message: "may fail or lose data on incompatible casts" });
+        risks.push(RiskItem {
+            label: "ALTER COLUMN TYPE",
+            level: "MEDIUM",
+            message: "may fail or lose data on incompatible casts",
+        });
     }
     if up.contains("TRUNCATE") {
-        risks.push(RiskItem { label: "TRUNCATE",         level: "HIGH",   message: "deletes every row in the table" });
+        risks.push(RiskItem {
+            label: "TRUNCATE",
+            level: "HIGH",
+            message: "deletes every row in the table",
+        });
     }
     if up.contains("DELETE FROM") {
-        risks.push(RiskItem { label: "DELETE FROM",      level: "MEDIUM", message: "removes rows permanently" });
+        risks.push(RiskItem {
+            label: "DELETE FROM",
+            level: "MEDIUM",
+            message: "removes rows permanently",
+        });
     }
     risks
 }
@@ -125,24 +146,40 @@ fn detect_risks(sql: &str) -> Vec<RiskItem> {
 
 fn print_sql_preview(sql: &str) {
     // Split on blank lines between statements, show first line of each
-    let stmts: Vec<&str> = sql.split("\n\n").map(str::trim).filter(|s| !s.is_empty()).collect();
+    let stmts: Vec<&str> = sql
+        .split("\n\n")
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
     let show_count = stmts.len().min(4);
 
     for stmt in &stmts[..show_count] {
         let first = stmt.lines().next().unwrap_or("").trim();
-        let more  = stmt.lines().count() > 1;
+        let more = stmt.lines().count() > 1;
         let color = {
             let up = first.to_uppercase();
-            if up.starts_with("CREATE TABLE")  { GRN }
-            else if up.starts_with("DROP")     { RED }
-            else if up.starts_with("ALTER")    { YLW }
-            else                               { DIM }
+            if up.starts_with("CREATE TABLE") {
+                GRN
+            } else if up.starts_with("DROP") {
+                RED
+            } else if up.starts_with("ALTER") {
+                YLW
+            } else {
+                DIM
+            }
         };
         print!("     {color}{first}{RST}");
-        if more { println!("  {DIM}...{RST}"); } else { println!(); }
+        if more {
+            println!("  {DIM}...{RST}");
+        } else {
+            println!();
+        }
     }
     if stmts.len() > show_count {
-        println!("     {DIM}  … and {} more statement(s){RST}", stmts.len() - show_count);
+        println!(
+            "     {DIM}  … and {} more statement(s){RST}",
+            stmts.len() - show_count
+        );
     }
 }
 
@@ -164,7 +201,9 @@ fn find_migration<'a>(names: &'a [String], target: &str) -> Option<(usize, &'a s
         1 => Some((matches[0].0, matches[0].1.as_str())),
         _ => {
             eprintln!("{YLW}Ambiguous name '{target}' — matches:{RST}");
-            for (_, n) in &matches { eprintln!("  {n}"); }
+            for (_, n) in &matches {
+                eprintln!("  {n}");
+            }
             None
         }
     }
@@ -248,7 +287,7 @@ async fn cmd_run(pool: &PgPool) -> Result<()> {
 
     ensure_history_table(pool).await?;
     let applied = applied_set(pool).await?;
-    let names   = migration_names()?;
+    let names = migration_names()?;
 
     let pending: Vec<&String> = names.iter().filter(|n| !applied.contains(*n)).collect();
     if pending.is_empty() {
@@ -274,7 +313,9 @@ async fn cmd_fake_initial(pool: &PgPool) -> Result<()> {
     ensure_history_table(pool).await?;
     let names = migration_names()?;
 
-    let first = names.iter().next()
+    let first = names
+        .iter()
+        .next()
         .context("No migrations found in migrations/")?;
 
     let applied = applied_set(pool).await?;
@@ -293,7 +334,7 @@ async fn cmd_fake_initial(pool: &PgPool) -> Result<()> {
 /// Applies forward or rolls back as needed.
 async fn cmd_target(pool: &PgPool, target: &str, fake: bool) -> Result<()> {
     ensure_history_table(pool).await?;
-    let names   = migration_names()?;
+    let names = migration_names()?;
     let applied = applied_set(pool).await?;
 
     let (target_idx, full_name) = find_migration(&names, target)
@@ -348,21 +389,24 @@ async fn cmd_target(pool: &PgPool, target: &str, fake: bool) -> Result<()> {
 /// Fake apply all pending migrations for a specific module.
 async fn cmd_target_module(pool: &PgPool, module: &str) -> Result<()> {
     ensure_history_table(pool).await?;
-    let names   = migration_names()?;
+    let names = migration_names()?;
     let applied = applied_set(pool).await?;
 
     let mut matched_migrations = vec![];
 
     for name in &names {
-        if applied.contains(name) { continue; }
+        if applied.contains(name) {
+            continue;
+        }
         let up_path = migrations_dir().join(name).join("up.sql");
         if let Ok(sql) = fs::read_to_string(&up_path) {
             let sql_upper = sql.to_uppercase();
             let module_upper = module.to_uppercase();
-            if sql_upper.contains(&format!("TABLE {module_upper}.")) 
+            if sql_upper.contains(&format!("TABLE {module_upper}."))
                 || sql_upper.contains(&format!("SCHEMA {module_upper}"))
                 || sql_upper.contains(&format!("INDEX IDX_{module_upper}_"))
-                || sql_upper.contains(&format!("TABLE IF EXISTS {module_upper}.")) {
+                || sql_upper.contains(&format!("TABLE IF EXISTS {module_upper}."))
+            {
                 matched_migrations.push(name.clone());
             }
         }
@@ -370,11 +414,16 @@ async fn cmd_target_module(pool: &PgPool, module: &str) -> Result<()> {
 
     if matched_migrations.is_empty() {
         // Not a module or no pending migrations
-        return Err(anyhow::anyhow!("Migration or module '{module}' not found or no pending migrations for it."));
+        return Err(anyhow::anyhow!(
+            "Migration or module '{module}' not found or no pending migrations for it."
+        ));
     }
 
     println!("\n{BLD}Targeting Module:{RST} {module}");
-    println!("Faking {} pending migration(s) for module...\n", matched_migrations.len());
+    println!(
+        "Faking {} pending migration(s) for module...\n",
+        matched_migrations.len()
+    );
 
     for name in matched_migrations {
         println!("  {YLW}⊘{RST}  {BLD}{name}{RST}  {DIM}(faked — SQL not executed){RST}");
@@ -388,31 +437,36 @@ async fn cmd_target_module(pool: &PgPool, module: &str) -> Result<()> {
 /// Show applied/pending status inline (same output as showmigrations).
 async fn cmd_status(pool: &PgPool) -> Result<()> {
     ensure_history_table(pool).await?;
-    let names   = migration_names()?;
+    let names = migration_names()?;
     let applied = applied_set(pool).await?;
 
     // Fetch applied_at timestamps
-    let rows = sqlx::query(
-        "SELECT name, applied_at FROM public._schema_migrations ORDER BY applied_at",
-    )
-    .fetch_all(pool)
-    .await?;
+    let rows =
+        sqlx::query("SELECT name, applied_at FROM public._schema_migrations ORDER BY applied_at")
+            .fetch_all(pool)
+            .await?;
     let ts_map: std::collections::HashMap<String, chrono::DateTime<chrono::Utc>> = rows
         .into_iter()
-        .map(|r| (
-            r.get::<String, _>("name"),
-            r.get::<chrono::DateTime<chrono::Utc>, _>("applied_at"),
-        ))
+        .map(|r| {
+            (
+                r.get::<String, _>("name"),
+                r.get::<chrono::DateTime<chrono::Utc>, _>("applied_at"),
+            )
+        })
         .collect();
 
     println!("\n{BLD}Migration status:{RST}\n");
-    println!("  {BLD}{:<55}  {:<10}  {}{RST}", "Migration", "Status", "Applied at");
+    println!(
+        "  {BLD}{:<55}  {:<10}  {}{RST}",
+        "Migration", "Status", "Applied at"
+    );
     println!("  {DIM}{}{RST}", "─".repeat(90));
 
     let mut pending_count = 0usize;
     for name in &names {
         if applied.contains(name) {
-            let ts = ts_map.get(name)
+            let ts = ts_map
+                .get(name)
                 .map(|t| t.format("%Y-%m-%d %H:%M UTC").to_string())
                 .unwrap_or_default();
             println!("  {GRN}[✓]{RST} {BLD}{name:<52}{RST}  {DIM}{ts}{RST}");
@@ -422,8 +476,12 @@ async fn cmd_status(pool: &PgPool) -> Result<()> {
         }
     }
 
-    println!("\n  Total: {}  |  {GRN}Applied: {}{RST}  |  {YLW}Pending: {}{RST}\n",
-        names.len(), names.len() - pending_count, pending_count);
+    println!(
+        "\n  Total: {}  |  {GRN}Applied: {}{RST}  |  {YLW}Pending: {}{RST}\n",
+        names.len(),
+        names.len() - pending_count,
+        pending_count
+    );
     Ok(())
 }
 
@@ -444,34 +502,38 @@ async fn main() -> Result<()> {
 
     match (arg1, arg2) {
         // cargo migrate
-        (None, _)                         => cmd_run(&pool).await?,
+        (None, _) => cmd_run(&pool).await?,
         // cargo migrate status
-        (Some("status"), _)               => cmd_status(&pool).await?,
+        (Some("status"), _) => cmd_status(&pool).await?,
         // cargo migrate --fake-initial
-        (Some("--fake-initial"), _)        => cmd_fake_initial(&pool).await?,
+        (Some("--fake-initial"), _) => cmd_fake_initial(&pool).await?,
         // cargo migrate <name_or_module> --fake
-        (Some(name), Some("--fake"))
-            if !name.starts_with("--") => {
-                if let Err(e) = cmd_target(&pool, name, true).await {
-                    // fallback to module fake
-                    if let Err(_) = cmd_target_module(&pool, name).await {
-                        eprintln!("{RED}Error:{RST} {}", e);
-                        std::process::exit(1);
-                    }
+        (Some(name), Some("--fake")) if !name.starts_with("--") => {
+            if let Err(e) = cmd_target(&pool, name, true).await {
+                // fallback to module fake
+                if let Err(_) = cmd_target_module(&pool, name).await {
+                    eprintln!("{RED}Error:{RST} {}", e);
+                    std::process::exit(1);
                 }
-            },
+            }
+        }
         // cargo migrate <name>
-        (Some(name), _)
-            if !name.starts_with("--")   => cmd_target(&pool, name, false).await?,
+        (Some(name), _) if !name.starts_with("--") => cmd_target(&pool, name, false).await?,
         // unknown flag
         (Some(flag), _) => {
             eprintln!("{RED}Unknown option: {flag}{RST}\n");
             eprintln!("Usage:");
             eprintln!("  {BLD}cargo migrate{RST}                    apply all pending migrations");
             eprintln!("  {BLD}cargo migrate status{RST}             show migration status");
-            eprintln!("  {BLD}cargo migrate --fake-initial{RST}     mark first migration as applied (no SQL)");
-            eprintln!("  {BLD}cargo migrate <name>{RST}             move DB to that migration state");
-            eprintln!("  {BLD}cargo migrate <name> --fake{RST}      mark migration as applied (no SQL)");
+            eprintln!(
+                "  {BLD}cargo migrate --fake-initial{RST}     mark first migration as applied (no SQL)"
+            );
+            eprintln!(
+                "  {BLD}cargo migrate <name>{RST}             move DB to that migration state"
+            );
+            eprintln!(
+                "  {BLD}cargo migrate <name> --fake{RST}      mark migration as applied (no SQL)"
+            );
             std::process::exit(1);
         }
     }

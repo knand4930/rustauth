@@ -1,7 +1,7 @@
 // db.rs
 
-use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 
 /// Create a PostgreSQL connection pool.
 ///

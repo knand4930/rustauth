@@ -1,12 +1,12 @@
-// src/blogs/handlers.rs
+// src/apps/blogs/handlers.rs
 //
 // Business logic & API route handlers for the Blogs app.
 //
 
 use axum::{
+    Json,
     extract::{Path, Query, State},
     response::IntoResponse,
-    Json,
 };
 use uuid::Uuid;
 use validator::Validate;
@@ -37,7 +37,8 @@ pub async fn create_blog_post(
     State(state): State<AppState>,
     Json(body): Json<CreateBlogPostRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    body.validate().map_err(|e| AppError::BadRequest(e.to_string()))?;
+    body.validate()
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
     let slug = body
         .title
@@ -246,12 +247,11 @@ pub async fn create_comment(
     Path(blog_id): Path<Uuid>,
     Json(body): Json<CreateCommentRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let exists = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM blog_posts WHERE id = $1)",
-    )
-    .bind(blog_id)
-    .fetch_one(&state.db)
-    .await?;
+    let exists =
+        sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM blog_posts WHERE id = $1)")
+            .bind(blog_id)
+            .fetch_one(&state.db)
+            .await?;
 
     if !exists {
         return Err(AppError::NotFound(format!("Blog post {blog_id} not found")));

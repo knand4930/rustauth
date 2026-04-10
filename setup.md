@@ -47,12 +47,12 @@ Then run migrations:
 cargo run --bin migrate
 ```
 
-## 5. Sync Diesel schema files
+## 5. Generate migrations after model changes
 
-If you change database models or schema definitions, refresh the Diesel schema files:
+If you change app models or schema definitions, generate a migration from the current `src/apps/*/models.rs` files:
 
 ```bash
-scripts/diesel-schema.sh sync
+cargo makemigrations
 ```
 
 ## 6. Optional Redis setup

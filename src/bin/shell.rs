@@ -27,7 +27,7 @@ use std::io::{self, BufRead, Write};
 // Try common postgres types in order; fall back to "<type>" label.
 
 fn cell_str(row: &PgRow, idx: usize) -> String {
-    let col  = &row.columns()[idx];
+    let col = &row.columns()[idx];
     let type_name = col.type_info().name();
 
     // NULL check via raw value
@@ -36,18 +36,25 @@ fn cell_str(row: &PgRow, idx: usize) -> String {
     }
 
     match type_name {
-        "BOOL"                          => row.try_get::<bool, _>(idx).map(|v| v.to_string()),
-        "INT2"                          => row.try_get::<i16,  _>(idx).map(|v| v.to_string()),
-        "INT4"                          => row.try_get::<i32,  _>(idx).map(|v| v.to_string()),
-        "INT8"                          => row.try_get::<i64,  _>(idx).map(|v| v.to_string()),
-        "FLOAT4"                        => row.try_get::<f32,  _>(idx).map(|v| v.to_string()),
-        "FLOAT8"                        => row.try_get::<f64,  _>(idx).map(|v| v.to_string()),
-        "UUID"                          => row.try_get::<sqlx::types::Uuid, _>(idx).map(|v| v.to_string()),
-        "TIMESTAMPTZ" | "TIMESTAMP"     => row.try_get::<chrono::DateTime<chrono::Utc>, _>(idx)
-                                                .map(|v| v.format("%Y-%m-%d %H:%M:%S UTC").to_string()),
-        "DATE"                          => row.try_get::<chrono::NaiveDate, _>(idx).map(|v| v.to_string()),
-        "JSONB" | "JSON"                => row.try_get::<serde_json::Value, _>(idx).map(|v| v.to_string()),
-        _                               => row.try_get::<String, _>(idx),
+        "BOOL" => row.try_get::<bool, _>(idx).map(|v| v.to_string()),
+        "INT2" => row.try_get::<i16, _>(idx).map(|v| v.to_string()),
+        "INT4" => row.try_get::<i32, _>(idx).map(|v| v.to_string()),
+        "INT8" => row.try_get::<i64, _>(idx).map(|v| v.to_string()),
+        "FLOAT4" => row.try_get::<f32, _>(idx).map(|v| v.to_string()),
+        "FLOAT8" => row.try_get::<f64, _>(idx).map(|v| v.to_string()),
+        "UUID" => row
+            .try_get::<sqlx::types::Uuid, _>(idx)
+            .map(|v| v.to_string()),
+        "TIMESTAMPTZ" | "TIMESTAMP" => row
+            .try_get::<chrono::DateTime<chrono::Utc>, _>(idx)
+            .map(|v| v.format("%Y-%m-%d %H:%M:%S UTC").to_string()),
+        "DATE" => row
+            .try_get::<chrono::NaiveDate, _>(idx)
+            .map(|v| v.to_string()),
+        "JSONB" | "JSON" => row
+            .try_get::<serde_json::Value, _>(idx)
+            .map(|v| v.to_string()),
+        _ => row.try_get::<String, _>(idx),
     }
     .unwrap_or_else(|_| format!("<{}>", type_name))
 }
@@ -70,9 +77,21 @@ fn print_table(headers: &[String], rows: &[Vec<String>]) {
         }
     }
 
-    let sep: String = widths.iter().map(|&w| "─".repeat(w + 2)).collect::<Vec<_>>().join("┼");
-    let top: String = widths.iter().map(|&w| "─".repeat(w + 2)).collect::<Vec<_>>().join("┬");
-    let bot: String = widths.iter().map(|&w| "─".repeat(w + 2)).collect::<Vec<_>>().join("┴");
+    let sep: String = widths
+        .iter()
+        .map(|&w| "─".repeat(w + 2))
+        .collect::<Vec<_>>()
+        .join("┼");
+    let top: String = widths
+        .iter()
+        .map(|&w| "─".repeat(w + 2))
+        .collect::<Vec<_>>()
+        .join("┬");
+    let bot: String = widths
+        .iter()
+        .map(|&w| "─".repeat(w + 2))
+        .collect::<Vec<_>>()
+        .join("┴");
 
     println!("┌{}┐", top);
 
@@ -87,7 +106,11 @@ fn print_table(headers: &[String], rows: &[Vec<String>]) {
     println!("├{}┤", sep);
 
     if rows.is_empty() {
-        let empty = widths.iter().map(|&w| " ".repeat(w + 2)).collect::<Vec<_>>().join("│");
+        let empty = widths
+            .iter()
+            .map(|&w| " ".repeat(w + 2))
+            .collect::<Vec<_>>()
+            .join("│");
         println!("│{}│", empty);
     } else {
         for row in rows {
@@ -105,7 +128,11 @@ fn print_table(headers: &[String], rows: &[Vec<String>]) {
     }
 
     println!("└{}┘", bot);
-    println!("({} row{})", rows.len(), if rows.len() == 1 { "" } else { "s" });
+    println!(
+        "({} row{})",
+        rows.len(),
+        if rows.len() == 1 { "" } else { "s" }
+    );
 }
 
 // ── Built-in commands ──────────────────────────────────────────────────────────
@@ -120,10 +147,12 @@ async fn cmd_tables(pool: &PgPool) -> Result<()> {
     let headers = vec!["schema".to_string(), "table".to_string()];
     let data: Vec<Vec<String>> = rows
         .iter()
-        .map(|r| vec![
-            r.get::<String, _>("table_schema"),
-            r.get::<String, _>("table_name"),
-        ])
+        .map(|r| {
+            vec![
+                r.get::<String, _>("table_schema"),
+                r.get::<String, _>("table_name"),
+            ]
+        })
         .collect();
     print_table(&headers, &data);
     Ok(())
@@ -157,7 +186,7 @@ async fn cmd_describe(pool: &PgPool, full_table: &str) -> Result<()> {
         "SELECT column_name, data_type, udt_name, is_nullable, column_default
          FROM information_schema.columns
          WHERE table_schema = $1 AND table_name = $2
-         ORDER BY ordinal_position"
+         ORDER BY ordinal_position",
     )
     .bind(schema)
     .bind(table)
@@ -189,7 +218,8 @@ async fn cmd_describe(pool: &PgPool, full_table: &str) -> Result<()> {
                 r.get::<String, _>("column_name"),
                 display_type,
                 r.get::<String, _>("is_nullable"),
-                r.try_get::<String, _>("column_default").unwrap_or_else(|_| "-".to_string()),
+                r.try_get::<String, _>("column_default")
+                    .unwrap_or_else(|_| "-".to_string()),
             ]
         })
         .collect();
@@ -200,12 +230,16 @@ async fn cmd_describe(pool: &PgPool, full_table: &str) -> Result<()> {
 
 async fn cmd_indexes(pool: &PgPool, full_table: &str) -> Result<()> {
     let parts: Vec<&str> = full_table.splitn(2, '.').collect();
-    let (schema, table) = if parts.len() == 2 { (parts[0], parts[1]) } else { ("public", parts[0]) };
+    let (schema, table) = if parts.len() == 2 {
+        (parts[0], parts[1])
+    } else {
+        ("public", parts[0])
+    };
 
     let rows = sqlx::query(
         "SELECT indexname, indexdef FROM pg_indexes
          WHERE schemaname = $1 AND tablename = $2
-         ORDER BY indexname"
+         ORDER BY indexname",
     )
     .bind(schema)
     .bind(table)
@@ -215,7 +249,12 @@ async fn cmd_indexes(pool: &PgPool, full_table: &str) -> Result<()> {
     let headers = vec!["index_name".to_string(), "definition".to_string()];
     let data: Vec<Vec<String>> = rows
         .iter()
-        .map(|r| vec![r.get::<String, _>("indexname"), r.get::<String, _>("indexdef")])
+        .map(|r| {
+            vec![
+                r.get::<String, _>("indexname"),
+                r.get::<String, _>("indexdef"),
+            ]
+        })
         .collect();
     print_table(&headers, &data);
     Ok(())
@@ -225,7 +264,7 @@ async fn cmd_migrations(pool: &PgPool) -> Result<()> {
     // table may not exist yet
     let exists: bool = sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM information_schema.tables
-         WHERE table_schema='public' AND table_name='_schema_migrations')"
+         WHERE table_schema='public' AND table_name='_schema_migrations')",
     )
     .fetch_one(pool)
     .await?;
@@ -235,21 +274,22 @@ async fn cmd_migrations(pool: &PgPool) -> Result<()> {
         return Ok(());
     }
 
-    let rows = sqlx::query(
-        "SELECT name, applied_at FROM public._schema_migrations ORDER BY applied_at"
-    )
-    .fetch_all(pool)
-    .await?;
+    let rows =
+        sqlx::query("SELECT name, applied_at FROM public._schema_migrations ORDER BY applied_at")
+            .fetch_all(pool)
+            .await?;
 
     let headers = vec!["migration".to_string(), "applied_at".to_string()];
     let data: Vec<Vec<String>> = rows
         .iter()
-        .map(|r| vec![
-            r.get::<String, _>("name"),
-            r.get::<chrono::DateTime<chrono::Utc>, _>("applied_at")
-                .format("%Y-%m-%d %H:%M:%S UTC")
-                .to_string(),
-        ])
+        .map(|r| {
+            vec![
+                r.get::<String, _>("name"),
+                r.get::<chrono::DateTime<chrono::Utc>, _>("applied_at")
+                    .format("%Y-%m-%d %H:%M:%S UTC")
+                    .to_string(),
+            ]
+        })
         .collect();
     print_table(&headers, &data);
     Ok(())
@@ -257,7 +297,9 @@ async fn cmd_migrations(pool: &PgPool) -> Result<()> {
 
 async fn cmd_count(pool: &PgPool, full_table: &str) -> Result<()> {
     let sql = format!("SELECT COUNT(*) AS count FROM {full_table}");
-    let row = sqlx::query(&sql).fetch_one(pool).await
+    let row = sqlx::query(&sql)
+        .fetch_one(pool)
+        .await
         .with_context(|| format!("Cannot query {full_table}"))?;
     let count: i64 = row.get("count");
     println!("{full_table}: {count} rows");
@@ -374,13 +416,16 @@ async fn main() -> Result<()> {
         if trimmed.starts_with('\\') {
             let parts: Vec<&str> = trimmed.splitn(2, ' ').collect();
             let result = match parts[0] {
-                "\\tables"     => cmd_tables(&pool).await,
-                "\\schema"     => cmd_schema(&pool, parts.get(1).copied().unwrap_or("public")).await,
-                "\\d"          => cmd_describe(&pool, parts.get(1).copied().unwrap_or("")).await,
-                "\\indexes"    => cmd_indexes(&pool, parts.get(1).copied().unwrap_or("")).await,
+                "\\tables" => cmd_tables(&pool).await,
+                "\\schema" => cmd_schema(&pool, parts.get(1).copied().unwrap_or("public")).await,
+                "\\d" => cmd_describe(&pool, parts.get(1).copied().unwrap_or("")).await,
+                "\\indexes" => cmd_indexes(&pool, parts.get(1).copied().unwrap_or("")).await,
                 "\\migrations" => cmd_migrations(&pool).await,
-                "\\count"      => cmd_count(&pool, parts.get(1).copied().unwrap_or("")).await,
-                other          => { println!("Unknown command: {other}  (try \\q to quit)"); Ok(()) }
+                "\\count" => cmd_count(&pool, parts.get(1).copied().unwrap_or("")).await,
+                other => {
+                    println!("Unknown command: {other}  (try \\q to quit)");
+                    Ok(())
+                }
             };
             if let Err(e) = result {
                 eprintln!("Error: {e:#}");

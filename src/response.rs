@@ -5,16 +5,16 @@
 //   use crate::response::{ApiSuccess, ApiPaginated, ApiList, ApiMessage};
 //
 
-use axum::{http::StatusCode, response::IntoResponse, Json};
+use axum::{Json, http::StatusCode, response::IntoResponse};
 use serde::Serialize;
 
 // ─── Pagination metadata ─────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
 pub struct PaginationMeta {
-    pub total:       i64,
-    pub page:        i64,
-    pub per_page:    i64,
+    pub total: i64,
+    pub page: i64,
+    pub per_page: i64,
     pub total_pages: i64,
 }
 
@@ -35,16 +35,28 @@ impl PaginationMeta {
 #[derive(Debug, Serialize)]
 pub struct ApiSuccess<T: Serialize> {
     pub success: bool,
-    pub data:    T,
+    pub data: T,
 }
 
 impl<T: Serialize> ApiSuccess<T> {
     pub fn ok(data: T) -> (StatusCode, Json<Self>) {
-        (StatusCode::OK, Json(Self { success: true, data }))
+        (
+            StatusCode::OK,
+            Json(Self {
+                success: true,
+                data,
+            }),
+        )
     }
 
     pub fn created(data: T) -> (StatusCode, Json<Self>) {
-        (StatusCode::CREATED, Json(Self { success: true, data }))
+        (
+            StatusCode::CREATED,
+            Json(Self {
+                success: true,
+                data,
+            }),
+        )
     }
 }
 
@@ -59,8 +71,8 @@ impl<T: Serialize> IntoResponse for ApiSuccess<T> {
 /// `{ "success": true, "data": [T], "pagination": { ... } }`
 #[derive(Debug, Serialize)]
 pub struct ApiPaginated<T: Serialize> {
-    pub success:    bool,
-    pub data:       Vec<T>,
+    pub success: bool,
+    pub data: Vec<T>,
     pub pagination: PaginationMeta,
 }
 
@@ -69,7 +81,7 @@ impl<T: Serialize> ApiPaginated<T> {
         (
             StatusCode::OK,
             Json(Self {
-                success:    true,
+                success: true,
                 data,
                 pagination: PaginationMeta::new(total, page, per_page),
             }),
@@ -83,14 +95,21 @@ impl<T: Serialize> ApiPaginated<T> {
 #[derive(Debug, Serialize)]
 pub struct ApiList<T: Serialize> {
     pub success: bool,
-    pub data:    Vec<T>,
-    pub count:   usize,
+    pub data: Vec<T>,
+    pub count: usize,
 }
 
 impl<T: Serialize> ApiList<T> {
     pub fn new(data: Vec<T>) -> (StatusCode, Json<Self>) {
         let count = data.len();
-        (StatusCode::OK, Json(Self { success: true, data, count }))
+        (
+            StatusCode::OK,
+            Json(Self {
+                success: true,
+                data,
+                count,
+            }),
+        )
     }
 }
 
@@ -105,7 +124,13 @@ pub struct ApiMessage {
 
 impl ApiMessage {
     pub fn ok(msg: impl Into<String>) -> (StatusCode, Json<Self>) {
-        (StatusCode::OK, Json(Self { success: true, message: msg.into() }))
+        (
+            StatusCode::OK,
+            Json(Self {
+                success: true,
+                message: msg.into(),
+            }),
+        )
     }
 
     pub fn deleted(resource: &str) -> (StatusCode, Json<Self>) {

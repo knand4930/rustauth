@@ -14,16 +14,13 @@ pub struct AppConfig {
 impl AppConfig {
     pub fn from_env() -> Self {
         Self {
-            database_url: env::var("DATABASE_URL")
-                .expect("DATABASE_URL must be set in .env"),
-            jwt_secret: env::var("JWT_SECRET_KEY")
-                .expect("JWT_SECRET_KEY must be set in .env"),
+            database_url: env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env"),
+            jwt_secret: env::var("JWT_SECRET_KEY").expect("JWT_SECRET_KEY must be set in .env"),
             jwt_maxage: env::var("JWT_MAXAGE")
                 .unwrap_or_else(|_| "60".to_string())
                 .parse()
                 .expect("JWT_MAXAGE must be a valid integer"),
-            server_host: env::var("SERVER_HOST")
-                .unwrap_or_else(|_| "0.0.0.0".to_string()),
+            server_host: env::var("SERVER_HOST").unwrap_or_else(|_| "0.0.0.0".to_string()),
             server_port: env::var("SERVER_PORT")
                 .unwrap_or_else(|_| "8000".to_string())
                 .parse()

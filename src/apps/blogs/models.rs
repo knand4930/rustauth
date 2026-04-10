@@ -1,4 +1,5 @@
-// src/blogs/models.rs
+// src/apps/blogs/models.rs
+// @schema blogs
 //
 // Database models ONLY — map 1:1 to PostgreSQL tables.
 //

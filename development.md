@@ -86,5 +86,5 @@ Then update the generated module with your models, handlers, and routes.
 
 ## Notes
 
-- `src/bin/startapp.rs` automatically patches `src/main.rs`, `src/models/mod.rs`, `src/schema.rs`, `diesel.toml`, and `src/bin/makemigrations.rs`.
-- Use `scripts/diesel-schema.sh sync` after schema changes to refresh `src/*/schemas.rs` files.
+- `src/bin/startapp.rs` scaffolds a new self-contained app in `src/apps/<name>/` and registers it in `src/apps/mod.rs`.
+- Use `cargo makemigrations` after model changes to generate SQL migrations from `src/apps/*/models.rs`.

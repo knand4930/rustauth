@@ -30,9 +30,7 @@ fn main() -> Result<()> {
     println!("╚══════════════════════════════════════════════════════════╝\n");
 
     // Replace this process with psql — ctrl-c, tab completion, history all work
-    let err = std::process::Command::new("psql")
-        .arg(&url)
-        .exec(); // never returns on success
+    let err = std::process::Command::new("psql").arg(&url).exec(); // never returns on success
 
     Err(err).context("Failed to launch psql — is it installed? (apt install postgresql-client)")
 }

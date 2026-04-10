@@ -32,7 +32,10 @@ fn migration_names() -> Result<Vec<String>> {
         .filter(|e| e.path().is_dir())
         .collect();
     entries.sort_by_key(|e| e.file_name());
-    Ok(entries.into_iter().map(|e| e.file_name().to_string_lossy().to_string()).collect())
+    Ok(entries
+        .into_iter()
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect())
 }
 
 fn get_migration_modules(sql: &str) -> Vec<String> {
@@ -40,7 +43,7 @@ fn get_migration_modules(sql: &str) -> Vec<String> {
     for line in sql.lines() {
         let line = line.to_uppercase();
         if let Some(idx) = line.find(" TABLE ") {
-            let rest = &line[idx+7..];
+            let rest = &line[idx + 7..];
             if let Some(dot) = rest.find('.') {
                 let schema = rest[..dot].trim().to_lowercase();
                 if schema != "public" && schema != "if" && schema != "exists" {
@@ -72,18 +75,19 @@ async fn main() -> Result<()> {
     .execute(&pool)
     .await?;
 
-    let rows = sqlx::query(
-        "SELECT name, applied_at FROM public._schema_migrations ORDER BY applied_at",
-    )
-    .fetch_all(&pool)
-    .await?;
+    let rows =
+        sqlx::query("SELECT name, applied_at FROM public._schema_migrations ORDER BY applied_at")
+            .fetch_all(&pool)
+            .await?;
 
     let ts_map: HashMap<String, chrono::DateTime<chrono::Utc>> = rows
         .into_iter()
-        .map(|r| (
-            r.get::<String, _>("name"),
-            r.get::<chrono::DateTime<chrono::Utc>, _>("applied_at"),
-        ))
+        .map(|r| {
+            (
+                r.get::<String, _>("name"),
+                r.get::<chrono::DateTime<chrono::Utc>, _>("applied_at"),
+            )
+        })
         .collect();
 
     let names = migration_names()?;
@@ -97,12 +101,17 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let mut by_module: std::collections::BTreeMap<String, Vec<&String>> = std::collections::BTreeMap::new();
+    let mut by_module: std::collections::BTreeMap<String, Vec<&String>> =
+        std::collections::BTreeMap::new();
     for name in &names {
-        let sql = fs::read_to_string(migrations_dir().join(name).join("up.sql")).unwrap_or_default();
+        let sql =
+            fs::read_to_string(migrations_dir().join(name).join("up.sql")).unwrap_or_default();
         let modules = get_migration_modules(&sql);
         if modules.is_empty() {
-            by_module.entry("global".to_string()).or_default().push(name);
+            by_module
+                .entry("global".to_string())
+                .or_default()
+                .push(name);
         } else {
             for md in modules {
                 by_module.entry(md).or_default().push(name);
@@ -135,8 +144,10 @@ async fn main() -> Result<()> {
 
     let pending = names.len() - applied_count;
     println!("  {DIM}─────────────────────────────────────{RST}");
-    println!("  Total: {}  |  {GRN}Applied: {applied_count}{RST}  |  {YLW}Pending: {pending}{RST}",
-        names.len());
+    println!(
+        "  Total: {}  |  {GRN}Applied: {applied_count}{RST}  |  {YLW}Pending: {pending}{RST}",
+        names.len()
+    );
 
     if pending > 0 {
         println!("\n  Run {BLD}cargo migrate{RST} to apply {pending} pending migration(s).");

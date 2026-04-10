@@ -18,6 +18,9 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(db: PgPool, config: AppConfig) -> Self {
-        Self { db, config: Arc::new(config) }
+        Self {
+            db,
+            config: Arc::new(config),
+        }
     }
 }

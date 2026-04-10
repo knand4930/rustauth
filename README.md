@@ -402,12 +402,12 @@ Run a quick build to ensure all dependencies resolve:
 cargo build
 ```
 
-### 5. (Optional) Sync Diesel Schema Cache
+### 5. Generate Migrations After Model Changes
 
-If you modify migrations, refresh the schema cache:
+If you modify app models, generate a migration from the current app structure:
 
 ```bash
-bash scripts/diesel-schema.sh sync
+cargo makemigrations
 ```
 
 ---
@@ -652,8 +652,8 @@ cargo run --bin shell
 # Open native PostgreSQL shell
 cargo run --bin dbshell
 
-# Refresh Diesel schema cache
-bash scripts/diesel-schema.sh sync
+# Generate migrations from app model changes
+cargo makemigrations
 ```
 
 ### Scaffolding & Development
@@ -662,7 +662,7 @@ bash scripts/diesel-schema.sh sync
 # Generate new app module (scaffolding)
 cargo run --bin startapp -- my_app
 
-# This creates: src/my_app/
+# This creates: src/apps/my_app/
 #   ├── mod.rs
 #   ├── models.rs
 #   ├── handlers.rs
@@ -921,12 +921,9 @@ authentication/
 ├── Cargo.toml                          # Project manifest, dependencies
 ├── Cargo.lock                          # Locked dependency versions
 ├── README.md                           # This file
-├── readme.md                           # Legacy readme
 │
 ├── .env                                # Local environment variables (gitignored)
-├── .env.example                        # Environment template
 ├── .gitignore                          # Git ignore rules
-├── diesel.toml                         # Diesel ORM configuration
 │
 ├── migrations/                         # Database schema migrations
 │   ├── 00000000000000_diesel_initial_setup/
@@ -934,32 +931,25 @@ authentication/
 │   ├── 20260407111624_auto/
 │   └── 20260408074647_auto/
 │
-├── scripts/                            # Utility scripts
-│   ├── diesel-schema.sh                # Diesel schema cache management
-│   └── ...
-│
 ├── src/                                # Application source code
-│   ├── main.rs                         # Application entry point
+│   ├── main.rs                         # Startup, middleware, and router mounting
 │   ├── config.rs                       # Configuration management
 │   ├── db.rs                           # Database setup
 │   ├── error.rs                        # Error types
 │   ├── response.rs                     # Response handlers
 │   ├── state.rs                        # Application state
-│   ├── models/                         # Shared models
-│   ├── middleware/                     # HTTP middleware
-│   │   ├── auth.rs
-│   │   ├── logging.rs
-│   │   └── mod.rs
-│   ├── user/                           # User authentication module
-│   │   ├── handlers.rs
-│   │   ├── models.rs
-│   │   ├── schemas.rs
-│   │   └── mod.rs
-│   ├── blogs/                          # Blog content module
-│   │   ├── handlers.rs
-│   │   ├── models.rs
-│   │   ├── schemas.rs
-│   │   └── mod.rs
+│   ├── apps/                           # Self-contained feature apps
+│   │   ├── mod.rs                      # Central app registry and OpenAPI wiring
+│   │   ├── user/
+│   │   │   ├── handlers.rs
+│   │   │   ├── models.rs
+│   │   │   ├── schemas.rs
+│   │   │   └── mod.rs
+│   │   └── blogs/
+│   │       ├── handlers.rs
+│   │       ├── models.rs
+│   │       ├── schemas.rs
+│   │       └── mod.rs
 │   └── bin/                            # CLI binaries
 │       ├── dbshell.rs                  # PostgreSQL shell wrapper
 │       ├── migrate.rs                  # Run database migrations
@@ -968,11 +958,9 @@ authentication/
 │       ├── shell.rs                    # Interactive SQL shell
 │       └── startapp.rs                 # App scaffolding generator
 │
-├── docs/                               # Additional documentation
-│   ├── README.md                       # This file
-│   ├── setup.md                        # Setup instructions
-│   ├── installation.md                 # Installation guide
-│   └── development.md                  # Development workflow
+├── setup.md                            # Setup instructions
+├── installation.md                     # Installation guide
+├── development.md                      # Development workflow
 │
 └── target/                             # Build artifacts (auto-generated)
     ├── debug/                          # Debug builds
@@ -984,17 +972,16 @@ authentication/
 | File | Purpose |
 |------|---------|
 | `Cargo.toml` | Project metadata, dependencies, build configuration |
-| `src/main.rs` | Application entry point, Axum setup, route definitions |
+| `src/main.rs` | Application startup, middleware, and top-level router mounting |
+| `src/apps/mod.rs` | Central app registry, route aggregation, and OpenAPI wiring |
 | `src/config.rs` | Environment variable loading, AppConfig struct |
 | `src/db.rs` | SQLx connection pool initialization |
 | `src/error.rs` | Unified error types and HTTP conversion |
 | `src/state.rs` | Shared application state (db pool, cache, config) |
-| `src/middleware/auth.rs` | JWT token extraction and validation |
-| `src/user/handlers.rs` | Register, login, user management endpoints |
-| `src/blogs/handlers.rs` | Blog CRUD endpoints |
+| `src/apps/user/handlers.rs` | Register, login, user management endpoints |
+| `src/apps/blogs/handlers.rs` | Blog CRUD endpoints |
 | `migrations/*.sql` | Database schema and structure |
 | `.env` | Local environment configuration |
-| `diesel.toml` | Diesel configuration for migrations & schema generation |
 
 ---
 

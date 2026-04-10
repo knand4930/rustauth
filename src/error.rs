@@ -1,9 +1,9 @@
 // src/error.rs
 
 use axum::{
+    Json,
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use serde_json::json;
 
@@ -32,13 +32,13 @@ pub enum AppError {
 impl std::fmt::Display for AppError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::NotFound(msg)     => write!(f, "Not Found: {msg}"),
-            Self::BadRequest(msg)   => write!(f, "Bad Request: {msg}"),
+            Self::NotFound(msg) => write!(f, "Not Found: {msg}"),
+            Self::BadRequest(msg) => write!(f, "Bad Request: {msg}"),
             Self::Unauthorized(msg) => write!(f, "Unauthorized: {msg}"),
-            Self::Forbidden(msg)    => write!(f, "Forbidden: {msg}"),
-            Self::Conflict(msg)     => write!(f, "Conflict: {msg}"),
-            Self::Internal(msg)     => write!(f, "Internal Error: {msg}"),
-            Self::Database(err)     => write!(f, "Database Error: {err}"),
+            Self::Forbidden(msg) => write!(f, "Forbidden: {msg}"),
+            Self::Conflict(msg) => write!(f, "Conflict: {msg}"),
+            Self::Internal(msg) => write!(f, "Internal Error: {msg}"),
+            Self::Database(err) => write!(f, "Database Error: {err}"),
         }
     }
 }
@@ -46,15 +46,18 @@ impl std::fmt::Display for AppError {
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, message) = match &self {
-            Self::NotFound(msg)     => (StatusCode::NOT_FOUND, msg.clone()),
-            Self::BadRequest(msg)   => (StatusCode::BAD_REQUEST, msg.clone()),
+            Self::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
+            Self::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             Self::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg.clone()),
-            Self::Forbidden(msg)    => (StatusCode::FORBIDDEN, msg.clone()),
-            Self::Conflict(msg)     => (StatusCode::CONFLICT, msg.clone()),
-            Self::Internal(msg)     => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
+            Self::Forbidden(msg) => (StatusCode::FORBIDDEN, msg.clone()),
+            Self::Conflict(msg) => (StatusCode::CONFLICT, msg.clone()),
+            Self::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
             Self::Database(err) => {
                 tracing::error!("Database error: {:?}", err);
-                (StatusCode::INTERNAL_SERVER_ERROR, "A database error occurred".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "A database error occurred".to_string(),
+                )
             }
         };
 
