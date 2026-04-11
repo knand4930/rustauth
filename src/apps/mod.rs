@@ -1,3 +1,4 @@
+pub mod adminx;
 pub mod blogs;
 pub mod user;
 // startapp:modules
@@ -16,6 +17,10 @@ use crate::state::AppState;
     ),
     paths(
         crate::health_check,
+        adminx::handlers::dashboard,
+        adminx::handlers::list_users,
+        adminx::handlers::get_user,
+        adminx::handlers::update_user,
         user::handlers::register,
         user::handlers::login,
         user::handlers::list_users,
@@ -31,6 +36,9 @@ use crate::state::AppState;
         blogs::handlers::list_comments,
     ),
     components(schemas(
+        adminx::AdminDashboardResponse,
+        adminx::AdminUserResponse,
+        adminx::UpdateAdminUserRequest,
         user::User,
         user::UserResponse,
         user::RegisterRequest,
@@ -45,6 +53,7 @@ use crate::state::AppState;
     )),
     tags(
         (name = "System", description = "Health and system endpoints"),
+        (name = "AdminX", description = "Admin dashboard and user management"),
         (name = "Authentication", description = "Register & Login endpoints"),
         (name = "Users", description = "User CRUD operations"),
         (name = "Blog Posts", description = "Blog post management"),
@@ -54,7 +63,10 @@ use crate::state::AppState;
 pub struct ApiDoc;
 
 pub fn routes() -> Router<AppState> {
-    let router = Router::new().merge(user::routes()).merge(blogs::routes());
+    let router = Router::new()
+        .merge(adminx::routes())
+        .merge(user::routes())
+        .merge(blogs::routes());
     // startapp:routes
 
     router

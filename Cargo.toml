@@ -1,8 +1,8 @@
 [package]
-name = "authentication"
+name = "rustauth"
 version = "0.1.0"
 edition = "2024"
-default-run = "authentication"
+default-run = "rustauth"
 
 [dependencies]
 anyhow = "1.0.102"
