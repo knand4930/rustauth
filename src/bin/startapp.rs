@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -44,46 +44,23 @@ fn apps_dir(root: &Path) -> PathBuf {
     root.join("src").join("apps")
 }
 
-fn apps_mod_path(root: &Path) -> PathBuf {
-    apps_dir(root).join("mod.rs")
-}
-
-fn admin_registry_path(root: &Path) -> PathBuf {
-    root.join("src").join("admin").join("registry.rs")
-}
-
-fn discover_apps(root: &Path) -> Result<Vec<String>> {
-    let mut apps: Vec<String> = fs::read_dir(apps_dir(root))?
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| entry.path().is_dir() && entry.path().join("mod.rs").exists())
-        .filter_map(|entry| entry.file_name().into_string().ok())
-        .collect();
-    apps.sort();
-    Ok(apps)
-}
-
-fn gen_mod_rs(app: &str) -> String {
-    let pascal = snake_to_pascal(app);
-
-    format!(
-        r#"pub mod admin_config;
+fn gen_mod_rs() -> String {
+    r#"pub mod admin_config;
 pub mod admin_registry;
 pub mod handlers;
 pub mod models;
 pub mod schemas;
 
-pub use models::{pascal};
-pub use schemas::{{Create{pascal}Request, Update{pascal}Request, {pascal}Response}};
-
 use axum::Router;
 
 use crate::state::AppState;
 
-pub fn routes() -> Router<AppState> {{
-    handlers::routes()
-}}
+/// App-local route entrypoint. Add routes here as handlers are introduced.
+pub fn routes() -> Router<AppState> {
+    Router::new()
+}
 "#
-    )
+    .to_string()
 }
 
 fn gen_admin_config_rs(app: &str) -> String {
@@ -107,10 +84,10 @@ pub fn admin_config() -> AdminAppConfig {{
             vec!["id", "name", "is_active", "created_at"],
             vec!["is_active"],
             AdminCrudConfig::new(
-                AdminEndpointConfig::new("POST", "/api/{plural_path}"),
-                AdminEndpointConfig::new("GET", "/api/{plural_path}/{{id}}"),
-                AdminEndpointConfig::new("PUT", "/api/{plural_path}/{{id}}"),
-                AdminEndpointConfig::new("DELETE", "/api/{plural_path}/{{id}}"),
+                AdminEndpointConfig::new("POST", "/api/v1/{plural_path}"),
+                AdminEndpointConfig::new("GET", "/api/v1/{plural_path}/{{id}}"),
+                AdminEndpointConfig::new("PUT", "/api/v1/{plural_path}/{{id}}"),
+                AdminEndpointConfig::new("DELETE", "/api/v1/{plural_path}/{{id}}"),
             ),
         )],
     )
@@ -211,149 +188,11 @@ impl From<{pascal}> for {pascal}Response {{
 }
 
 fn gen_handlers_rs(app: &str) -> String {
-    let table = pluralize(app);
-
     format!(
-        r#"use axum::Router;
-
-use crate::state::AppState;
-
-/// Register `{table}` routes here as the app grows.
-pub fn routes() -> Router<AppState> {{
-    Router::new()
-}}
+        r#"// Request handlers for the `{app}` app live here.
+// Keep transport logic here and wire routes from mod.rs.
 "#
     )
-}
-
-fn gen_admin_hub_registry_rs() -> String {
-    r#"use crate::apps;
-
-use super::AdminPanelBuilder;
-
-pub fn register_app_registries(builder: &mut AdminPanelBuilder) {
-    // startapp:apps:start
-    // startapp:apps:end
-}
-"#
-    .to_string()
-}
-
-fn replace_marked_block(
-    content: &str,
-    start_marker: &str,
-    end_marker: &str,
-    lines: &[String],
-) -> Result<String> {
-    let start = content
-        .find(start_marker)
-        .with_context(|| format!("Start marker '{start_marker}' not found"))?;
-    let end = content
-        .find(end_marker)
-        .with_context(|| format!("End marker '{end_marker}' not found"))?;
-    let end_line_start = content[..end].rfind('\n').map(|idx| idx + 1).unwrap_or(end);
-
-    if end < start {
-        bail!("Marker ordering is invalid for {start_marker} / {end_marker}");
-    }
-
-    let start_block = start + start_marker.len();
-    let replacement = if lines.is_empty() {
-        "\n".to_string()
-    } else {
-        format!("\n{}\n", lines.join("\n"))
-    };
-
-    let mut updated = String::with_capacity(content.len() + replacement.len());
-    updated.push_str(&content[..start_block]);
-    updated.push_str(&replacement);
-    updated.push_str(&content[end_line_start..]);
-    Ok(updated)
-}
-
-fn ensure_admin_registry_module(root: &Path) -> Result<()> {
-    let path = admin_registry_path(root);
-    if path.exists() {
-        return Ok(());
-    }
-
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    let content = gen_admin_hub_registry_rs();
-    fs::write(&path, &content)?;
-    println!(
-        "  {GRN}✓{RST}  {BLD}src/admin/registry.rs{RST}  {DIM}(generated central admin loader){RST}"
-    );
-
-    Ok(())
-}
-
-fn sync_apps_mod(root: &Path) -> Result<()> {
-    let path = apps_mod_path(root);
-    let apps = discover_apps(root)?;
-    let content =
-        fs::read_to_string(&path).with_context(|| format!("Cannot read {}", path.display()))?;
-
-    let module_lines: Vec<String> = apps.iter().map(|app| format!("pub mod {app};")).collect();
-    let route_lines: Vec<String> = if apps.is_empty() {
-        vec!["    let router = Router::new();".to_string()]
-    } else {
-        vec![format!(
-            "    let router = Router::new(){};",
-            apps.iter()
-                .map(|app| format!(".merge({app}::routes())"))
-                .collect::<String>()
-        )]
-    };
-
-    let content = replace_marked_block(
-        &content,
-        "// startapp:modules:start",
-        "// startapp:modules:end",
-        &module_lines,
-    )?;
-    let content = replace_marked_block(
-        &content,
-        "// startapp:routes:start",
-        "// startapp:routes:end",
-        &route_lines,
-    )?;
-
-    fs::write(&path, content)?;
-    println!(
-        "  {GRN}✓{RST}  {BLD}src/apps/mod.rs{RST}  {DIM}(synced module and route blocks){RST}"
-    );
-
-    Ok(())
-}
-
-fn sync_admin_registry(root: &Path) -> Result<()> {
-    ensure_admin_registry_module(root)?;
-
-    let path = admin_registry_path(root);
-    let apps = discover_apps(root)?;
-    let content =
-        fs::read_to_string(&path).with_context(|| format!("Cannot read {}", path.display()))?;
-
-    let registry_lines: Vec<String> = apps
-        .iter()
-        .map(|app| format!("    apps::{app}::admin_registry::register(builder);"))
-        .collect();
-    let content = replace_marked_block(
-        &content,
-        "// startapp:apps:start",
-        "// startapp:apps:end",
-        &registry_lines,
-    )?;
-
-    fs::write(&path, content)?;
-    println!(
-        "  {GRN}✓{RST}  {BLD}src/admin/registry.rs{RST}  {DIM}(synced app admin registries){RST}"
-    );
-
-    Ok(())
 }
 
 fn main() -> Result<()> {
@@ -409,12 +248,6 @@ fn main() -> Result<()> {
         bail!("{RED}src/apps/{app} exists but is not a directory.{RST}");
     }
 
-    if !apps_mod_path(&root).exists() {
-        bail!(
-            "{RED}src/apps/mod.rs is missing.{RST}  Restore the app registry before scaffolding."
-        );
-    }
-
     println!("\n{BLD}╔══════════════════════════════════════╗");
     println!("║  cargo startapp                     ║");
     println!("╚══════════════════════════════════════╝{RST}");
@@ -429,7 +262,7 @@ fn main() -> Result<()> {
     fs::create_dir_all(&app_dir)?;
 
     let files: &[(&str, fn(&str, &str) -> String)] = &[
-        ("mod.rs", |app, _| gen_mod_rs(app)),
+        ("mod.rs", |_, _| gen_mod_rs()),
         ("admin_config.rs", |app, _| gen_admin_config_rs(app)),
         ("admin_registry.rs", |app, _| gen_admin_registry_rs(app)),
         ("models.rs", gen_models_rs),
@@ -458,15 +291,10 @@ fn main() -> Result<()> {
     }
 
     println!();
-    println!("{CYN}Syncing central registries...{RST}");
-    sync_apps_mod(&root)?;
-    sync_admin_registry(&root)?;
-
-    println!();
     if app_exists {
         if generated_file_count == 0 {
             println!(
-                "{GRN}{BLD}✓  App '{app}' already had all scaffold files. Registries were refreshed.{RST}"
+                "{GRN}{BLD}✓  App '{app}' already had all scaffold files. No global modules were changed.{RST}"
             );
         } else {
             println!(
@@ -496,22 +324,28 @@ fn main() -> Result<()> {
     println!();
     println!("{BLD}Next steps:{RST}");
     println!(
-        "  {DIM}1.{RST}  Edit  {BLD}src/apps/{app}/handlers.rs{RST}  — add routes and business logic"
+        "  {DIM}1.{RST}  Edit  {BLD}src/apps/{app}/models.rs{RST}          — define your database models"
     );
     println!(
-        "  {DIM}2.{RST}  Edit  {BLD}src/apps/{app}/models.rs{RST}    — expand your data model"
+        "  {DIM}2.{RST}  Edit  {BLD}src/apps/{app}/schemas.rs{RST}         — shape request and response DTOs"
     );
     println!(
-        "  {DIM}3.{RST}  Edit  {BLD}src/apps/{app}/schemas.rs{RST}   — shape request and response types"
+        "  {DIM}3.{RST}  Edit  {BLD}src/apps/{app}/handlers.rs{RST}        — add request handlers"
     );
     println!(
-        "  {DIM}4.{RST}  Edit  {BLD}src/apps/{app}/admin_config.rs{RST} — tune admin list/filter/CRUD definitions"
+        "  {DIM}4.{RST}  Edit  {BLD}src/apps/{app}/mod.rs{RST}             — wire app routes locally"
     );
     println!(
-        "  {DIM}5.{RST}  Update {BLD}src/apps/mod.rs{RST}              — add OpenAPI paths when endpoints exist"
+        "  {DIM}5.{RST}  Edit  {BLD}src/apps/{app}/admin_config.rs{RST}    — tune app admin metadata"
     );
     println!(
-        "  {DIM}6.{RST}  Run   {BLD}cargo makemigrations{RST}          — generate SQL migration"
+        "  {DIM}6.{RST}  Update {BLD}src/apps/mod.rs{RST}                  — register the app module, routes, and OpenAPI entries"
+    );
+    println!(
+        "  {DIM}7.{RST}  Update {BLD}src/admin/registry.rs{RST}            — register the app admin registry manually"
+    );
+    println!(
+        "  {DIM}8.{RST}  Run   {BLD}cargo makemigrations{RST}              — generate SQL migration"
     );
     println!();
 

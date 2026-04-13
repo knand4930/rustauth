@@ -1,7 +1,5 @@
-// startapp:modules:start
 pub mod blogs;
 pub mod user;
-// startapp:modules:end
 
 use axum::Router;
 use utoipa::OpenApi;
@@ -71,9 +69,7 @@ use crate::state::AppState;
 pub struct ApiDoc;
 
 pub fn routes() -> Router<AppState> {
-    // startapp:routes:start
     let router = Router::new().merge(blogs::routes()).merge(user::routes());
-    // startapp:routes:end
 
     router
 }

@@ -198,15 +198,15 @@ fn resource(
 
 fn user_crud() -> AdminCrudConfig {
     AdminCrudConfig::new(
-        AdminEndpointConfig::new("POST", "/api/auth/register"),
-        AdminEndpointConfig::new("GET", "/api/users/{id}"),
-        AdminEndpointConfig::new("PUT", "/api/users/{id}"),
-        AdminEndpointConfig::new("DELETE", "/api/users/{id}"),
+        AdminEndpointConfig::new("POST", "/api/v1/auth/register"),
+        AdminEndpointConfig::new("GET", "/api/v1/users/{id}"),
+        AdminEndpointConfig::new("PUT", "/api/v1/users/{id}"),
+        AdminEndpointConfig::new("DELETE", "/api/v1/users/{id}"),
     )
 }
 
 fn crud_for(resource_key: &str) -> AdminCrudConfig {
-    let collection_path = format!("/api/{resource_key}");
+    let collection_path = format!("/api/v1/{resource_key}");
     let detail_path = format!("{collection_path}/{{id}}");
 
     AdminCrudConfig::new(
