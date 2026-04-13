@@ -1,11 +1,9 @@
-use crate::apps;
-
-use super::{AdminExtension, AdminPanel, AdminPanelBuilder};
+use super::{AdminExtension, AdminPanel, AdminPanelBuilder, registry};
 
 pub fn initialize_adminx() -> AdminPanel {
     let mut builder = AdminPanelBuilder::new("RustAuth AdminX", "RustAuth Administration");
 
-    apps::register_admin_apps(&mut builder);
+    registry::register_app_registries(&mut builder);
     register_builtin_extensions(&mut builder);
 
     builder.build()

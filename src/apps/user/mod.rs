@@ -17,7 +17,7 @@ use axum::{
     routing::{delete, get, post, put},
 };
 
-use crate::{admin::AdminPanelBuilder, state::AppState};
+use crate::state::AppState;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -29,8 +29,4 @@ pub fn routes() -> Router<AppState> {
         .route("/api/users/{id}", get(handlers::get_user))
         .route("/api/users/{id}", put(handlers::update_user))
         .route("/api/users/{id}", delete(handlers::delete_user))
-}
-
-pub fn register_admin(builder: &mut AdminPanelBuilder) {
-    admin_registry::register(builder);
 }

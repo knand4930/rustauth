@@ -2,6 +2,7 @@ pub mod app;
 pub mod config;
 pub mod initializer;
 pub mod panel;
+pub mod registry;
 pub mod resource;
 
 pub use app::routes;

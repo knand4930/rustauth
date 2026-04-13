@@ -48,6 +48,10 @@ fn apps_mod_path(root: &Path) -> PathBuf {
     apps_dir(root).join("mod.rs")
 }
 
+fn admin_registry_path(root: &Path) -> PathBuf {
+    root.join("src").join("admin").join("registry.rs")
+}
+
 fn discover_apps(root: &Path) -> Result<Vec<String>> {
     let mut apps: Vec<String> = fs::read_dir(apps_dir(root))?
         .filter_map(|entry| entry.ok())
@@ -73,14 +77,10 @@ pub use schemas::{{Create{pascal}Request, Update{pascal}Request, {pascal}Respons
 
 use axum::Router;
 
-use crate::{{admin::AdminPanelBuilder, state::AppState}};
+use crate::state::AppState;
 
 pub fn routes() -> Router<AppState> {{
     handlers::routes()
-}}
-
-pub fn register_admin(builder: &mut AdminPanelBuilder) {{
-    admin_registry::register(builder);
 }}
 "#
     )
@@ -226,6 +226,19 @@ pub fn routes() -> Router<AppState> {{
     )
 }
 
+fn gen_admin_hub_registry_rs() -> String {
+    r#"use crate::apps;
+
+use super::AdminPanelBuilder;
+
+pub fn register_app_registries(builder: &mut AdminPanelBuilder) {
+    // startapp:apps:start
+    // startapp:apps:end
+}
+"#
+    .to_string()
+}
+
 fn replace_marked_block(
     content: &str,
     start_marker: &str,
@@ -258,6 +271,25 @@ fn replace_marked_block(
     Ok(updated)
 }
 
+fn ensure_admin_registry_module(root: &Path) -> Result<()> {
+    let path = admin_registry_path(root);
+    if path.exists() {
+        return Ok(());
+    }
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let content = gen_admin_hub_registry_rs();
+    fs::write(&path, &content)?;
+    println!(
+        "  {GRN}✓{RST}  {BLD}src/admin/registry.rs{RST}  {DIM}(generated central admin loader){RST}"
+    );
+
+    Ok(())
+}
+
 fn sync_apps_mod(root: &Path) -> Result<()> {
     let path = apps_mod_path(root);
     let apps = discover_apps(root)?;
@@ -265,10 +297,6 @@ fn sync_apps_mod(root: &Path) -> Result<()> {
         fs::read_to_string(&path).with_context(|| format!("Cannot read {}", path.display()))?;
 
     let module_lines: Vec<String> = apps.iter().map(|app| format!("pub mod {app};")).collect();
-    let admin_lines: Vec<String> = apps
-        .iter()
-        .map(|app| format!("    {app}::register_admin(builder);"))
-        .collect();
     let route_lines: Vec<String> = if apps.is_empty() {
         vec!["    let router = Router::new();".to_string()]
     } else {
@@ -288,12 +316,6 @@ fn sync_apps_mod(root: &Path) -> Result<()> {
     )?;
     let content = replace_marked_block(
         &content,
-        "// startapp:admin:start",
-        "// startapp:admin:end",
-        &admin_lines,
-    )?;
-    let content = replace_marked_block(
-        &content,
         "// startapp:routes:start",
         "// startapp:routes:end",
         &route_lines,
@@ -301,7 +323,34 @@ fn sync_apps_mod(root: &Path) -> Result<()> {
 
     fs::write(&path, content)?;
     println!(
-        "  {GRN}✓{RST}  {BLD}src/apps/mod.rs{RST}  {DIM}(synced module, admin, and route blocks){RST}"
+        "  {GRN}✓{RST}  {BLD}src/apps/mod.rs{RST}  {DIM}(synced module and route blocks){RST}"
+    );
+
+    Ok(())
+}
+
+fn sync_admin_registry(root: &Path) -> Result<()> {
+    ensure_admin_registry_module(root)?;
+
+    let path = admin_registry_path(root);
+    let apps = discover_apps(root)?;
+    let content =
+        fs::read_to_string(&path).with_context(|| format!("Cannot read {}", path.display()))?;
+
+    let registry_lines: Vec<String> = apps
+        .iter()
+        .map(|app| format!("    apps::{app}::admin_registry::register(builder);"))
+        .collect();
+    let content = replace_marked_block(
+        &content,
+        "// startapp:apps:start",
+        "// startapp:apps:end",
+        &registry_lines,
+    )?;
+
+    fs::write(&path, content)?;
+    println!(
+        "  {GRN}✓{RST}  {BLD}src/admin/registry.rs{RST}  {DIM}(synced app admin registries){RST}"
     );
 
     Ok(())
@@ -354,9 +403,10 @@ fn main() -> Result<()> {
     let root = PathBuf::from(MANIFEST_DIR);
     let apps_root = apps_dir(&root);
     let app_dir = apps_root.join(&app);
+    let app_exists = app_dir.exists();
 
-    if app_dir.exists() {
-        bail!("{YLW}Directory src/apps/{app}/ already exists.{RST}  Use a different name.");
+    if app_exists && !app_dir.is_dir() {
+        bail!("{RED}src/apps/{app} exists but is not a directory.{RST}");
     }
 
     if !apps_mod_path(&root).exists() {
@@ -375,7 +425,7 @@ fn main() -> Result<()> {
     println!("  {CYN}Location  :{RST}  {BLD}src/apps/{app}{RST}");
     println!();
 
-    println!("{CYN}Creating app files...{RST}");
+    println!("{CYN}Ensuring app files...{RST}");
     fs::create_dir_all(&app_dir)?;
 
     let files: &[(&str, fn(&str, &str) -> String)] = &[
@@ -387,10 +437,20 @@ fn main() -> Result<()> {
         ("handlers.rs", |app, _| gen_handlers_rs(app)),
     ];
 
+    let mut generated_file_count = 0usize;
+
     for (filename, generator) in files {
-        let content = generator(&app, &schema);
         let file_path = app_dir.join(filename);
+        if file_path.exists() {
+            println!(
+                "  {YLW}•{RST}  {BLD}src/apps/{app}/{filename}{RST}  {DIM}(exists, kept as-is){RST}"
+            );
+            continue;
+        }
+
+        let content = generator(&app, &schema);
         fs::write(&file_path, &content)?;
+        generated_file_count += 1;
         println!(
             "  {GRN}✓{RST}  {BLD}src/apps/{app}/{filename}{RST}  {DIM}({} lines){RST}",
             content.lines().count()
@@ -398,11 +458,24 @@ fn main() -> Result<()> {
     }
 
     println!();
-    println!("{CYN}Registering app...{RST}");
+    println!("{CYN}Syncing central registries...{RST}");
     sync_apps_mod(&root)?;
+    sync_admin_registry(&root)?;
 
     println!();
-    println!("{GRN}{BLD}✓  App '{app}' created successfully!{RST}");
+    if app_exists {
+        if generated_file_count == 0 {
+            println!(
+                "{GRN}{BLD}✓  App '{app}' already had all scaffold files. Registries were refreshed.{RST}"
+            );
+        } else {
+            println!(
+                "{GRN}{BLD}✓  App '{app}' repaired successfully with {generated_file_count} generated file(s).{RST}"
+            );
+        }
+    } else {
+        println!("{GRN}{BLD}✓  App '{app}' created successfully!{RST}");
+    }
     println!();
     println!("{BLD}Structure:{RST}");
     println!("  {DIM}src/apps/{app}/{RST}");
@@ -438,7 +511,7 @@ fn main() -> Result<()> {
         "  {DIM}5.{RST}  Update {BLD}src/apps/mod.rs{RST}              — add OpenAPI paths when endpoints exist"
     );
     println!(
-        "  {DIM}5.{RST}  Run   {BLD}cargo makemigrations{RST}        — generate SQL migration"
+        "  {DIM}6.{RST}  Run   {BLD}cargo makemigrations{RST}          — generate SQL migration"
     );
     println!();
 

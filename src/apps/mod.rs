@@ -6,7 +6,7 @@ pub mod user;
 use axum::Router;
 use utoipa::OpenApi;
 
-use crate::{admin::AdminPanelBuilder, state::AppState};
+use crate::state::AppState;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -70,16 +70,9 @@ use crate::{admin::AdminPanelBuilder, state::AppState};
 )]
 pub struct ApiDoc;
 
-pub fn register_admin_apps(builder: &mut AdminPanelBuilder) {
-    // startapp:admin:start
-    blogs::register_admin(builder);
-    user::register_admin(builder);
-    // startapp:admin:end
-}
-
 pub fn routes() -> Router<AppState> {
     // startapp:routes:start
-    let router = Router::new().merge(user::routes()).merge(blogs::routes());
+    let router = Router::new().merge(blogs::routes()).merge(user::routes());
     // startapp:routes:end
 
     router
