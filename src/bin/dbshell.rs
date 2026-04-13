@@ -5,9 +5,9 @@
 //   cargo dbshell
 //
 // Useful psql shortcuts once inside:
-//   \dt auth.*        — list tables in auth schema
-//   \dt blog.*        — list tables in blog schema
-//   \d auth.users     — describe a table
+//   \dt user.*        — list tables in the user schema
+//   \dt blogs.*       — list tables in the blogs schema
+//   \d user.users     — describe a table
 //   \dn               — list schemas
 //   \q                — quit
 
@@ -26,7 +26,7 @@ fn main() -> Result<()> {
 
     println!("╔══════════════════════════════════════════════════════════╗");
     println!("║  cargo dbshell  →  psql @ {:<31}║", db_name);
-    println!("║  \\dt auth.*  \\dt blog.*  \\d <table>  \\q to quit         ║");
+    println!("║  \\dt user.*  \\dt blogs.*  \\d <table>  \\q to quit        ║");
     println!("╚══════════════════════════════════════════════════════════╝\n");
 
     // Replace this process with psql — ctrl-c, tab completion, history all work

@@ -24,14 +24,29 @@ fn migrations_dir() -> PathBuf {
     PathBuf::from(MANIFEST_DIR).join("migrations")
 }
 
+fn migration_sort_key(name: &str) -> (String, String) {
+    let prefix = name.split('_').next().unwrap_or(name);
+    let digits: String = prefix.chars().filter(|ch| ch.is_ascii_digit()).collect();
+    (digits, name.to_string())
+}
+
 fn migration_names() -> Result<Vec<String>> {
     let mdir = migrations_dir();
     let mut entries: Vec<_> = fs::read_dir(&mdir)
         .with_context(|| format!("Cannot read migrations dir: {}", mdir.display()))?
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_dir())
+        .filter(|entry| {
+            let path = entry.path();
+            path.is_dir()
+                && path.join("up.sql").exists()
+                && entry
+                    .file_name()
+                    .to_str()
+                    .and_then(|name| name.chars().next())
+                    .is_some_and(|first| first.is_ascii_digit())
+        })
         .collect();
-    entries.sort_by_key(|e| e.file_name());
+    entries.sort_by_key(|entry| migration_sort_key(&entry.file_name().to_string_lossy()));
     Ok(entries
         .into_iter()
         .map(|e| e.file_name().to_string_lossy().to_string())

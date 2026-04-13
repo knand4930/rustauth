@@ -48,11 +48,23 @@ fn apps_mod_path(root: &Path) -> PathBuf {
     apps_dir(root).join("mod.rs")
 }
 
+fn discover_apps(root: &Path) -> Result<Vec<String>> {
+    let mut apps: Vec<String> = fs::read_dir(apps_dir(root))?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.path().is_dir() && entry.path().join("mod.rs").exists())
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .collect();
+    apps.sort();
+    Ok(apps)
+}
+
 fn gen_mod_rs(app: &str) -> String {
     let pascal = snake_to_pascal(app);
 
     format!(
-        r#"pub mod handlers;
+        r#"pub mod admin_config;
+pub mod admin_registry;
+pub mod handlers;
 pub mod models;
 pub mod schemas;
 
@@ -61,13 +73,62 @@ pub use schemas::{{Create{pascal}Request, Update{pascal}Request, {pascal}Respons
 
 use axum::Router;
 
-use crate::state::AppState;
+use crate::{{admin::AdminPanelBuilder, state::AppState}};
 
 pub fn routes() -> Router<AppState> {{
     handlers::routes()
 }}
+
+pub fn register_admin(builder: &mut AdminPanelBuilder) {{
+    admin_registry::register(builder);
+}}
 "#
     )
+}
+
+fn gen_admin_config_rs(app: &str) -> String {
+    let pascal = snake_to_pascal(app);
+    let label = pascal.clone();
+    let plural_path = pluralize(app);
+
+    format!(
+        r#"use crate::admin::{{
+    AdminAppConfig, AdminCrudConfig, AdminEndpointConfig, AdminResourceConfig,
+}};
+
+pub fn admin_config() -> AdminAppConfig {{
+    AdminAppConfig::new(
+        "{app}",
+        "{label}",
+        vec![AdminResourceConfig::new(
+            "{plural_path}",
+            "{label}",
+            "{pascal}",
+            vec!["id", "name", "is_active", "created_at"],
+            vec!["is_active"],
+            AdminCrudConfig::new(
+                AdminEndpointConfig::new("POST", "/api/{plural_path}"),
+                AdminEndpointConfig::new("GET", "/api/{plural_path}/{{id}}"),
+                AdminEndpointConfig::new("PUT", "/api/{plural_path}/{{id}}"),
+                AdminEndpointConfig::new("DELETE", "/api/{plural_path}/{{id}}"),
+            ),
+        )],
+    )
+}}
+"#
+    )
+}
+
+fn gen_admin_registry_rs(_: &str) -> String {
+    r#"use crate::admin::AdminPanelBuilder;
+
+use super::admin_config;
+
+pub fn register(builder: &mut AdminPanelBuilder) {
+    builder.register_app(admin_config::admin_config());
+}
+"#
+    .to_string()
 }
 
 fn gen_models_rs(app: &str, pg_schema: &str) -> String {
@@ -83,14 +144,20 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 /// Base model for the `{pg_schema}.{table}` table.
+// @table {table}
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
 pub struct {pascal} {{
     pub id: Uuid,
+    // @unique
     pub name: String,
+    // @index
+    // @default true
     pub is_active: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }}
+
+crate::declare_model_table!({pascal}, "{pg_schema}", "{table}");
 "#
     )
 }
@@ -159,47 +226,83 @@ pub fn routes() -> Router<AppState> {{
     )
 }
 
-fn insert_before(path: &Path, anchor: &str, new_line: &str) -> Result<bool> {
-    let content =
-        fs::read_to_string(path).with_context(|| format!("Cannot read {}", path.display()))?;
+fn replace_marked_block(
+    content: &str,
+    start_marker: &str,
+    end_marker: &str,
+    lines: &[String],
+) -> Result<String> {
+    let start = content
+        .find(start_marker)
+        .with_context(|| format!("Start marker '{start_marker}' not found"))?;
+    let end = content
+        .find(end_marker)
+        .with_context(|| format!("End marker '{end_marker}' not found"))?;
+    let end_line_start = content[..end].rfind('\n').map(|idx| idx + 1).unwrap_or(end);
 
-    if content.contains(new_line.trim()) {
-        return Ok(false);
+    if end < start {
+        bail!("Marker ordering is invalid for {start_marker} / {end_marker}");
     }
 
-    let mut lines: Vec<&str> = content.lines().collect();
-    let pos = lines
-        .iter()
-        .position(|line| line.contains(anchor))
-        .with_context(|| format!("Anchor '{anchor}' not found in {}", path.display()))?;
+    let start_block = start + start_marker.len();
+    let replacement = if lines.is_empty() {
+        "\n".to_string()
+    } else {
+        format!("\n{}\n", lines.join("\n"))
+    };
 
-    lines.insert(pos, new_line);
-    fs::write(path, lines.join("\n") + "\n")?;
-    Ok(true)
+    let mut updated = String::with_capacity(content.len() + replacement.len());
+    updated.push_str(&content[..start_block]);
+    updated.push_str(&replacement);
+    updated.push_str(&content[end_line_start..]);
+    Ok(updated)
 }
 
-fn patch_apps_mod(app: &str, root: &Path) -> Result<()> {
+fn sync_apps_mod(root: &Path) -> Result<()> {
     let path = apps_mod_path(root);
+    let apps = discover_apps(root)?;
+    let content =
+        fs::read_to_string(&path).with_context(|| format!("Cannot read {}", path.display()))?;
 
-    let added_module = insert_before(&path, "// startapp:modules", &format!("pub mod {app};"))?;
-    if added_module {
-        println!("  {GRN}✓{RST}  {BLD}src/apps/mod.rs{RST}  {DIM}← pub mod {app};{RST}");
+    let module_lines: Vec<String> = apps.iter().map(|app| format!("pub mod {app};")).collect();
+    let admin_lines: Vec<String> = apps
+        .iter()
+        .map(|app| format!("    {app}::register_admin(builder);"))
+        .collect();
+    let route_lines: Vec<String> = if apps.is_empty() {
+        vec!["    let router = Router::new();".to_string()]
     } else {
-        println!("  {DIM}≡  src/apps/mod.rs  (module already registered){RST}");
-    }
+        vec![format!(
+            "    let router = Router::new(){};",
+            apps.iter()
+                .map(|app| format!(".merge({app}::routes())"))
+                .collect::<String>()
+        )]
+    };
 
-    let added_route = insert_before(
-        &path,
-        "// startapp:routes",
-        &format!("    let router = router.merge({app}::routes());"),
+    let content = replace_marked_block(
+        &content,
+        "// startapp:modules:start",
+        "// startapp:modules:end",
+        &module_lines,
     )?;
-    if added_route {
-        println!(
-            "  {GRN}✓{RST}  {BLD}src/apps/mod.rs{RST}  {DIM}← let router = router.merge({app}::routes());{RST}"
-        );
-    } else {
-        println!("  {DIM}≡  src/apps/mod.rs  (route already registered){RST}");
-    }
+    let content = replace_marked_block(
+        &content,
+        "// startapp:admin:start",
+        "// startapp:admin:end",
+        &admin_lines,
+    )?;
+    let content = replace_marked_block(
+        &content,
+        "// startapp:routes:start",
+        "// startapp:routes:end",
+        &route_lines,
+    )?;
+
+    fs::write(&path, content)?;
+    println!(
+        "  {GRN}✓{RST}  {BLD}src/apps/mod.rs{RST}  {DIM}(synced module, admin, and route blocks){RST}"
+    );
 
     Ok(())
 }
@@ -277,6 +380,8 @@ fn main() -> Result<()> {
 
     let files: &[(&str, fn(&str, &str) -> String)] = &[
         ("mod.rs", |app, _| gen_mod_rs(app)),
+        ("admin_config.rs", |app, _| gen_admin_config_rs(app)),
+        ("admin_registry.rs", |app, _| gen_admin_registry_rs(app)),
         ("models.rs", gen_models_rs),
         ("schemas.rs", |app, _| gen_schemas_rs(app)),
         ("handlers.rs", |app, _| gen_handlers_rs(app)),
@@ -294,17 +399,27 @@ fn main() -> Result<()> {
 
     println!();
     println!("{CYN}Registering app...{RST}");
-    patch_apps_mod(&app, &root)?;
+    sync_apps_mod(&root)?;
 
     println!();
     println!("{GRN}{BLD}✓  App '{app}' created successfully!{RST}");
     println!();
     println!("{BLD}Structure:{RST}");
     println!("  {DIM}src/apps/{app}/{RST}");
-    println!("  {DIM}├── {RST}{BLD}mod.rs{RST}       {DIM}— app exports and route entrypoint{RST}");
-    println!("  {DIM}├── {RST}{BLD}models.rs{RST}    {DIM}— database models{RST}");
-    println!("  {DIM}├── {RST}{BLD}schemas.rs{RST}   {DIM}— request and response DTOs{RST}");
-    println!("  {DIM}└── {RST}{BLD}handlers.rs{RST}  {DIM}— route handlers and app router{RST}");
+    println!(
+        "  {DIM}├── {RST}{BLD}mod.rs{RST}             {DIM}— app exports and route entrypoint{RST}"
+    );
+    println!(
+        "  {DIM}├── {RST}{BLD}admin_config.rs{RST}    {DIM}— app-level admin list/filter/CRUD metadata{RST}"
+    );
+    println!(
+        "  {DIM}├── {RST}{BLD}admin_registry.rs{RST}  {DIM}— central admin registration hook{RST}"
+    );
+    println!("  {DIM}├── {RST}{BLD}models.rs{RST}          {DIM}— database models{RST}");
+    println!("  {DIM}├── {RST}{BLD}schemas.rs{RST}         {DIM}— request and response DTOs{RST}");
+    println!(
+        "  {DIM}└── {RST}{BLD}handlers.rs{RST}        {DIM}— route handlers and app router{RST}"
+    );
     println!();
     println!("{BLD}Next steps:{RST}");
     println!(
@@ -317,7 +432,10 @@ fn main() -> Result<()> {
         "  {DIM}3.{RST}  Edit  {BLD}src/apps/{app}/schemas.rs{RST}   — shape request and response types"
     );
     println!(
-        "  {DIM}4.{RST}  Update {BLD}src/apps/mod.rs{RST}            — add OpenAPI paths when endpoints exist"
+        "  {DIM}4.{RST}  Edit  {BLD}src/apps/{app}/admin_config.rs{RST} — tune admin list/filter/CRUD definitions"
+    );
+    println!(
+        "  {DIM}5.{RST}  Update {BLD}src/apps/mod.rs{RST}              — add OpenAPI paths when endpoints exist"
     );
     println!(
         "  {DIM}5.{RST}  Run   {BLD}cargo makemigrations{RST}        — generate SQL migration"

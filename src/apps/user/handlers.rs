@@ -43,11 +43,14 @@ pub async fn register(
     body.validate()
         .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
-    let existing =
-        sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)")
-            .bind(&body.email)
-            .fetch_one(&state.db)
-            .await?;
+    let existing_sql = format!(
+        "SELECT EXISTS(SELECT 1 FROM {} WHERE email = $1)",
+        User::QUALIFIED_TABLE
+    );
+    let existing = sqlx::query_scalar::<_, bool>(&existing_sql)
+        .bind(&body.email)
+        .fetch_one(&state.db)
+        .await?;
 
     if existing {
         return Err(AppError::Conflict("Email already registered".to_string()));
@@ -61,9 +64,9 @@ pub async fn register(
         .map_err(|e| AppError::Internal(format!("Password hashing failed: {e}")))?
         .to_string();
 
-    let user = sqlx::query_as::<_, User>(
+    let insert_sql = format!(
         r#"
-        INSERT INTO users (
+        INSERT INTO {} (
             id, email, password, salt, full_name, company, phone_number,
             timezone, language, is_active, is_superuser, is_staffuser,
             email_verified, phone_verified, mfa_enabled, login_count,
@@ -77,15 +80,17 @@ pub async fn register(
         )
         RETURNING *
         "#,
-    )
-    .bind(&body.email)
-    .bind(&password_hash)
-    .bind(salt.as_str())
-    .bind(&body.full_name)
-    .bind(&body.company)
-    .bind(&body.phone_number)
-    .fetch_one(&state.db)
-    .await?;
+        User::QUALIFIED_TABLE
+    );
+    let user = sqlx::query_as::<_, User>(&insert_sql)
+        .bind(&body.email)
+        .bind(&password_hash)
+        .bind(salt.as_str())
+        .bind(&body.full_name)
+        .bind(&body.company)
+        .bind(&body.phone_number)
+        .fetch_one(&state.db)
+        .await?;
 
     let response: UserResponse = user.into();
     Ok(ApiSuccess::created(response))
@@ -109,12 +114,15 @@ pub async fn login(
     body.validate()
         .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
-    let user =
-        sqlx::query_as::<_, User>("SELECT * FROM users WHERE email = $1 AND is_active = true")
-            .bind(&body.email)
-            .fetch_optional(&state.db)
-            .await?
-            .ok_or_else(|| AppError::Unauthorized("Invalid email or password".to_string()))?;
+    let login_sql = format!(
+        "SELECT * FROM {} WHERE email = $1 AND is_active = true",
+        User::QUALIFIED_TABLE
+    );
+    let user = sqlx::query_as::<_, User>(&login_sql)
+        .bind(&body.email)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or_else(|| AppError::Unauthorized("Invalid email or password".to_string()))?;
 
     let parsed_hash = argon2::PasswordHash::new(user.password.as_deref().unwrap_or(""))
         .map_err(|_| AppError::Unauthorized("Invalid email or password".to_string()))?;
@@ -126,12 +134,14 @@ pub async fn login(
     )
     .map_err(|_| AppError::Unauthorized("Invalid email or password".to_string()))?;
 
-    sqlx::query(
-        "UPDATE users SET login_count = login_count + 1, last_login_at = NOW() WHERE id = $1",
-    )
-    .bind(user.id)
-    .execute(&state.db)
-    .await?;
+    let touch_login_sql = format!(
+        "UPDATE {} SET login_count = login_count + 1, last_login_at = NOW() WHERE id = $1",
+        User::QUALIFIED_TABLE
+    );
+    sqlx::query(&touch_login_sql)
+        .bind(user.id)
+        .execute(&state.db)
+        .await?;
 
     // Use shared config from state — no env re-read on each request
     let config = &state.config;
@@ -201,33 +211,40 @@ pub async fn list_users(
     let (users, total) = if let Some(ref search) = params.search {
         let pattern = format!("%{search}%");
 
-        let users = sqlx::query_as::<_, User>(
-            "SELECT * FROM users WHERE email ILIKE $1 OR full_name ILIKE $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
-        )
-        .bind(&pattern)
-        .bind(per_page)
-        .bind(offset)
-        .fetch_all(&state.db)
-        .await?;
+        let list_sql = format!(
+            "SELECT * FROM {} WHERE email ILIKE $1 OR full_name ILIKE $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+            User::QUALIFIED_TABLE
+        );
+        let users = sqlx::query_as::<_, User>(&list_sql)
+            .bind(&pattern)
+            .bind(per_page)
+            .bind(offset)
+            .fetch_all(&state.db)
+            .await?;
 
-        let total = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM users WHERE email ILIKE $1 OR full_name ILIKE $1",
-        )
-        .bind(&pattern)
-        .fetch_one(&state.db)
-        .await?;
+        let count_sql = format!(
+            "SELECT COUNT(*) FROM {} WHERE email ILIKE $1 OR full_name ILIKE $1",
+            User::QUALIFIED_TABLE
+        );
+        let total = sqlx::query_scalar::<_, i64>(&count_sql)
+            .bind(&pattern)
+            .fetch_one(&state.db)
+            .await?;
 
         (users, total)
     } else {
-        let users = sqlx::query_as::<_, User>(
-            "SELECT * FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2",
-        )
-        .bind(per_page)
-        .bind(offset)
-        .fetch_all(&state.db)
-        .await?;
+        let list_sql = format!(
+            "SELECT * FROM {} ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+            User::QUALIFIED_TABLE
+        );
+        let users = sqlx::query_as::<_, User>(&list_sql)
+            .bind(per_page)
+            .bind(offset)
+            .fetch_all(&state.db)
+            .await?;
 
-        let total = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users")
+        let count_sql = format!("SELECT COUNT(*) FROM {}", User::QUALIFIED_TABLE);
+        let total = sqlx::query_scalar::<_, i64>(&count_sql)
             .fetch_one(&state.db)
             .await?;
 
@@ -253,7 +270,8 @@ pub async fn get_user(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
-    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+    let get_sql = format!("SELECT * FROM {} WHERE id = $1", User::QUALIFIED_TABLE);
+    let user = sqlx::query_as::<_, User>(&get_sql)
         .bind(id)
         .fetch_optional(&state.db)
         .await?
@@ -280,9 +298,9 @@ pub async fn update_user(
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateUserRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let user = sqlx::query_as::<_, User>(
+    let update_sql = format!(
         r#"
-        UPDATE users SET
+        UPDATE {} SET
             full_name    = COALESCE($2, full_name),
             company      = COALESCE($3, company),
             phone_number = COALESCE($4, phone_number),
@@ -294,18 +312,20 @@ pub async fn update_user(
         WHERE id = $1
         RETURNING *
         "#,
-    )
-    .bind(id)
-    .bind(&body.full_name)
-    .bind(&body.company)
-    .bind(&body.phone_number)
-    .bind(&body.timezone)
-    .bind(&body.language)
-    .bind(&body.avatar_url)
-    .bind(&body.location)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or_else(|| AppError::NotFound(format!("User {id} not found")))?;
+        User::QUALIFIED_TABLE
+    );
+    let user = sqlx::query_as::<_, User>(&update_sql)
+        .bind(id)
+        .bind(&body.full_name)
+        .bind(&body.company)
+        .bind(&body.phone_number)
+        .bind(&body.timezone)
+        .bind(&body.language)
+        .bind(&body.avatar_url)
+        .bind(&body.location)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("User {id} not found")))?;
 
     let response: UserResponse = user.into();
     Ok(ApiSuccess::ok(response))
@@ -326,11 +346,11 @@ pub async fn delete_user(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
-    let result =
-        sqlx::query("UPDATE users SET is_active = false, updated_at = NOW() WHERE id = $1")
-            .bind(id)
-            .execute(&state.db)
-            .await?;
+    let delete_sql = format!(
+        "UPDATE {} SET is_active = false, updated_at = NOW() WHERE id = $1",
+        User::QUALIFIED_TABLE
+    );
+    let result = sqlx::query(&delete_sql).bind(id).execute(&state.db).await?;
 
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound(format!("User {id} not found")));

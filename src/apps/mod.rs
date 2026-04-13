@@ -1,26 +1,28 @@
-pub mod adminx;
+// startapp:modules:start
 pub mod blogs;
 pub mod user;
-// startapp:modules
+// startapp:modules:end
 
 use axum::Router;
 use utoipa::OpenApi;
 
-use crate::state::AppState;
+use crate::{admin::AdminPanelBuilder, state::AppState};
 
 #[derive(OpenApi)]
 #[openapi(
     info(
         title = "RustAuth API",
         version = "1.0.0",
-        description = "Authentication & Blog API built with Axum + SQLx",
+        description = "Authentication, Blog, and AdminX API built with Axum + SQLx",
     ),
     paths(
         crate::health_check,
-        adminx::handlers::dashboard,
-        adminx::handlers::list_users,
-        adminx::handlers::get_user,
-        adminx::handlers::update_user,
+        crate::admin::resource::dashboard::dashboard,
+        crate::admin::resource::registry::list_resources,
+        crate::admin::resource::registry::get_app_resources,
+        crate::admin::resource::users::list_users,
+        crate::admin::resource::users::get_user,
+        crate::admin::resource::users::update_user,
         user::handlers::register,
         user::handlers::login,
         user::handlers::list_users,
@@ -36,9 +38,15 @@ use crate::state::AppState;
         blogs::handlers::list_comments,
     ),
     components(schemas(
-        adminx::AdminDashboardResponse,
-        adminx::AdminUserResponse,
-        adminx::UpdateAdminUserRequest,
+        crate::admin::AdminEndpointConfig,
+        crate::admin::AdminCrudConfig,
+        crate::admin::AdminResourceConfig,
+        crate::admin::AdminAppConfig,
+        crate::admin::AdminExtension,
+        crate::admin::AdminPanel,
+        crate::admin::resource::dashboard::AdminDashboardResponse,
+        crate::admin::resource::users::AdminUserResponse,
+        crate::admin::resource::users::UpdateAdminUserRequest,
         user::User,
         user::UserResponse,
         user::RegisterRequest,
@@ -53,7 +61,7 @@ use crate::state::AppState;
     )),
     tags(
         (name = "System", description = "Health and system endpoints"),
-        (name = "AdminX", description = "Admin dashboard and user management"),
+        (name = "AdminX", description = "Admin panel registry, dashboard, and custom resources"),
         (name = "Authentication", description = "Register & Login endpoints"),
         (name = "Users", description = "User CRUD operations"),
         (name = "Blog Posts", description = "Blog post management"),
@@ -62,12 +70,17 @@ use crate::state::AppState;
 )]
 pub struct ApiDoc;
 
+pub fn register_admin_apps(builder: &mut AdminPanelBuilder) {
+    // startapp:admin:start
+    blogs::register_admin(builder);
+    user::register_admin(builder);
+    // startapp:admin:end
+}
+
 pub fn routes() -> Router<AppState> {
-    let router = Router::new()
-        .merge(adminx::routes())
-        .merge(user::routes())
-        .merge(blogs::routes());
-    // startapp:routes
+    // startapp:routes:start
+    let router = Router::new().merge(user::routes()).merge(blogs::routes());
+    // startapp:routes:end
 
     router
 }

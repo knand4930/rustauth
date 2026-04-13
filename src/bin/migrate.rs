@@ -43,6 +43,14 @@ async fn ensure_history_table(pool: &PgPool) -> Result<()> {
     Ok(())
 }
 
+async fn ensure_database_prereqs(pool: &PgPool) -> Result<()> {
+    sqlx::query("CREATE EXTENSION IF NOT EXISTS pgcrypto")
+        .execute(pool)
+        .await
+        .context("Cannot enable pgcrypto extension required for gen_random_uuid()")?;
+    Ok(())
+}
+
 async fn applied_set(pool: &PgPool) -> Result<HashSet<String>> {
     let rows = sqlx::query("SELECT name FROM public._schema_migrations")
         .fetch_all(pool)
@@ -75,14 +83,29 @@ fn migrations_dir() -> PathBuf {
     PathBuf::from(MANIFEST_DIR).join("migrations")
 }
 
+fn migration_sort_key(name: &str) -> (String, String) {
+    let prefix = name.split('_').next().unwrap_or(name);
+    let digits: String = prefix.chars().filter(|ch| ch.is_ascii_digit()).collect();
+    (digits, name.to_string())
+}
+
 fn migration_dirs() -> Result<Vec<std::fs::DirEntry>> {
     let mdir = migrations_dir();
     let mut entries: Vec<_> = fs::read_dir(&mdir)
         .with_context(|| format!("Cannot read migrations dir: {}", mdir.display()))?
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_dir())
+        .filter(|entry| {
+            let path = entry.path();
+            path.is_dir()
+                && path.join("up.sql").exists()
+                && entry
+                    .file_name()
+                    .to_str()
+                    .and_then(|name| name.chars().next())
+                    .is_some_and(|first| first.is_ascii_digit())
+        })
         .collect();
-    entries.sort_by_key(|e| e.file_name());
+    entries.sort_by_key(|entry| migration_sort_key(&entry.file_name().to_string_lossy()));
     Ok(entries)
 }
 
@@ -495,6 +518,7 @@ async fn main() -> Result<()> {
     let pool = PgPool::connect(&database_url)
         .await
         .context("Cannot connect to database — check DATABASE_URL")?;
+    ensure_database_prereqs(&pool).await?;
 
     let args: Vec<String> = env::args().collect();
     let arg1 = args.get(1).map(|s| s.as_str());

@@ -1,5 +1,7 @@
 // src/apps/blogs/mod.rs
 
+pub mod admin_config;
+pub mod admin_registry;
 pub mod handlers;
 pub mod models;
 pub mod schemas;
@@ -13,7 +15,7 @@ use axum::{
     routing::{delete, get, post, put},
 };
 
-use crate::state::AppState;
+use crate::{admin::AdminPanelBuilder, state::AppState};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -31,4 +33,8 @@ pub fn routes() -> Router<AppState> {
             "/api/v1/blogs/{blog_id}/comments",
             get(handlers::list_comments),
         )
+}
+
+pub fn register_admin(builder: &mut AdminPanelBuilder) {
+    admin_registry::register(builder);
 }

@@ -1,0 +1,972 @@
+{
+  "tables": {
+    "blogs.blog_posts": {
+      "columns": [
+        {
+          "name": "id",
+          "sql_type": "UUID",
+          "nullable": false,
+          "is_pk": true,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "title",
+          "sql_type": "VARCHAR",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "slug",
+          "sql_type": "VARCHAR",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "author_id",
+          "sql_type": "UUID",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "content",
+          "sql_type": "VARCHAR",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "short_description",
+          "sql_type": "VARCHAR",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "is_published",
+          "sql_type": "BOOLEAN",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "published_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "created_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "updated_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        }
+      ]
+    },
+    "user.permissions": {
+      "columns": [
+        {
+          "name": "id",
+          "sql_type": "UUID",
+          "nullable": false,
+          "is_pk": true,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "name",
+          "sql_type": "VARCHAR",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "is_active",
+          "sql_type": "BOOLEAN",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "created_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "updated_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        }
+      ]
+    },
+    "user.user_roles": {
+      "columns": [
+        {
+          "name": "id",
+          "sql_type": "UUID",
+          "nullable": false,
+          "is_pk": true,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "user_id",
+          "sql_type": "UUID",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "role_id",
+          "sql_type": "UUID",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "assigned_by_id",
+          "sql_type": "UUID",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "is_active",
+          "sql_type": "BOOLEAN",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "created_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "updated_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        }
+      ]
+    },
+    "user.users": {
+      "columns": [
+        {
+          "name": "id",
+          "sql_type": "UUID",
+          "nullable": false,
+          "is_pk": true,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "email",
+          "sql_type": "VARCHAR",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "password",
+          "sql_type": "VARCHAR",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "store_password",
+          "sql_type": "VARCHAR",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "full_name",
+          "sql_type": "VARCHAR",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "company",
+          "sql_type": "VARCHAR",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "avatar_url",
+          "sql_type": "VARCHAR",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "phone_number",
+          "sql_type": "VARCHAR",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "timezone",
+          "sql_type": "VARCHAR",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "language",
+          "sql_type": "VARCHAR",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "salt",
+          "sql_type": "VARCHAR",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "location",
+          "sql_type": "VARCHAR",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "ipaddress",
+          "sql_type": "VARCHAR",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "is_active",
+          "sql_type": "BOOLEAN",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "is_superuser",
+          "sql_type": "BOOLEAN",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "is_staffuser",
+          "sql_type": "BOOLEAN",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "is_guest",
+          "sql_type": "BOOLEAN",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "email_verified",
+          "sql_type": "BOOLEAN",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "phone_verified",
+          "sql_type": "BOOLEAN",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "mfa_enabled",
+          "sql_type": "BOOLEAN",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "mfa_secret",
+          "sql_type": "VARCHAR",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "backup_codes",
+          "sql_type": "TEXT[]",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "preferences",
+          "sql_type": "JSONB",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "last_login_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "last_login_ip",
+          "sql_type": "VARCHAR",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "login_count",
+          "sql_type": "INTEGER",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "created_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "updated_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        }
+      ]
+    },
+    "user.password_reset_tokens": {
+      "columns": [
+        {
+          "name": "id",
+          "sql_type": "UUID",
+          "nullable": false,
+          "is_pk": true,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "user_id",
+          "sql_type": "UUID",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "token_hash",
+          "sql_type": "VARCHAR",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "expires_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "is_used",
+          "sql_type": "BOOLEAN",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "created_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "updated_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        }
+      ]
+    },
+    "user.refresh_tokens": {
+      "columns": [
+        {
+          "name": "id",
+          "sql_type": "UUID",
+          "nullable": false,
+          "is_pk": true,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "refresh_token",
+          "sql_type": "VARCHAR",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "expires_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "is_active",
+          "sql_type": "BOOLEAN",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "user_agent",
+          "sql_type": "VARCHAR",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "ip_address",
+          "sql_type": "VARCHAR",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "device_fingerprint",
+          "sql_type": "VARCHAR",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "last_used_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "rotated_from_id",
+          "sql_type": "UUID",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "user_id",
+          "sql_type": "UUID",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "created_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "updated_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        }
+      ]
+    },
+    "user.roles": {
+      "columns": [
+        {
+          "name": "id",
+          "sql_type": "UUID",
+          "nullable": false,
+          "is_pk": true,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "name",
+          "sql_type": "VARCHAR",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "description",
+          "sql_type": "VARCHAR",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "is_active",
+          "sql_type": "BOOLEAN",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "created_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "updated_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        }
+      ]
+    },
+    "user.access_tokens": {
+      "columns": [
+        {
+          "name": "id",
+          "sql_type": "UUID",
+          "nullable": false,
+          "is_pk": true,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "user_id",
+          "sql_type": "UUID",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "refresh_token_id",
+          "sql_type": "UUID",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "access_token",
+          "sql_type": "VARCHAR",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "expires_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "is_active",
+          "sql_type": "BOOLEAN",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "last_used",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "is_single_use",
+          "sql_type": "BOOLEAN",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "created_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "updated_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        }
+      ]
+    },
+    "user.token_blacklists": {
+      "columns": [
+        {
+          "name": "id",
+          "sql_type": "UUID",
+          "nullable": false,
+          "is_pk": true,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "token_jti",
+          "sql_type": "VARCHAR",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "expires_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "created_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "updated_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        }
+      ]
+    },
+    "user.role_permissions": {
+      "columns": [
+        {
+          "name": "id",
+          "sql_type": "UUID",
+          "nullable": false,
+          "is_pk": true,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "role_id",
+          "sql_type": "UUID",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "permission_id",
+          "sql_type": "UUID",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "can_read",
+          "sql_type": "BOOLEAN",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "can_write",
+          "sql_type": "BOOLEAN",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "can_delete",
+          "sql_type": "BOOLEAN",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "created_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        }
+      ]
+    },
+    "blogs.comments": {
+      "columns": [
+        {
+          "name": "id",
+          "sql_type": "UUID",
+          "nullable": false,
+          "is_pk": true,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "user_id",
+          "sql_type": "UUID",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "guest_name",
+          "sql_type": "VARCHAR",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "blog_post_id",
+          "sql_type": "UUID",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "parent_id",
+          "sql_type": "UUID",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "content",
+          "sql_type": "VARCHAR",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "is_approved",
+          "sql_type": "BOOLEAN",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "created_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "updated_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        }
+      ]
+    },
+    "user.user_sessions": {
+      "columns": [
+        {
+          "name": "id",
+          "sql_type": "UUID",
+          "nullable": false,
+          "is_pk": true,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "user_id",
+          "sql_type": "UUID",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "session_token",
+          "sql_type": "VARCHAR",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "user_agent",
+          "sql_type": "VARCHAR",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "ip_address",
+          "sql_type": "VARCHAR",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "expires_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": true,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "is_active",
+          "sql_type": "BOOLEAN",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "created_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        },
+        {
+          "name": "updated_at",
+          "sql_type": "TIMESTAMPTZ",
+          "nullable": false,
+          "is_pk": false,
+          "is_unique": false,
+          "is_index": false
+        }
+      ]
+    }
+  }
+}

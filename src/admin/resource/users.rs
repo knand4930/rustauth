@@ -1,26 +1,24 @@
 use axum::{
     Json,
     extract::{Path, Query, State},
-    http::{HeaderMap, header},
+    http::HeaderMap,
     response::IntoResponse,
 };
-use jsonwebtoken::{Algorithm, DecodingKey, Validation};
-use serde::Deserialize;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
+use utoipa::ToSchema;
 use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
+    apps::user::User,
     error::AppError,
     response::{ApiPaginated, ApiSuccess},
     state::AppState,
 };
 
-use super::{
-    models::{AdminActor, AdminDashboardMetrics, AdminManagedUser},
-    schemas::{
-        AdminDashboardResponse, AdminUserResponse, ListAdminUsersQuery, UpdateAdminUserRequest,
-    },
-};
+use super::auth::require_admin;
 
 const MANAGED_USER_COLUMNS: &str = r#"
     id,
@@ -45,66 +43,127 @@ const MANAGED_USER_COLUMNS: &str = r#"
 "#;
 
 #[derive(Debug, Deserialize)]
-struct AccessClaims {
-    sub: String,
-    #[serde(rename = "exp")]
-    _exp: usize,
-    #[serde(rename = "type")]
-    token_type: String,
+pub struct ListAdminUsersQuery {
+    pub page: Option<i64>,
+    pub per_page: Option<i64>,
+    pub search: Option<String>,
+    pub is_active: Option<bool>,
+    pub is_staffuser: Option<bool>,
+    pub is_superuser: Option<bool>,
 }
 
-#[utoipa::path(
-    get,
-    path = "/api/adminx/dashboard",
-    params(
-        ("Authorization" = String, Header, description = "Bearer admin access token"),
-    ),
-    responses(
-        (status = 200, description = "Admin dashboard summary"),
-        (status = 401, description = "Missing or invalid access token"),
-        (status = 403, description = "Admin privileges required"),
-    ),
-    tag = "AdminX"
-)]
-pub async fn dashboard(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> Result<impl IntoResponse, AppError> {
-    let actor = require_admin(&state, &headers).await?;
-    tracing::debug!(admin_id = %actor.id, "Loading admin dashboard");
+#[derive(Debug, Deserialize, Validate, ToSchema)]
+pub struct UpdateAdminUserRequest {
+    #[validate(length(min = 1, message = "Full name cannot be empty"))]
+    pub full_name: Option<String>,
+    #[validate(length(min = 1, message = "Company cannot be empty"))]
+    pub company: Option<String>,
+    #[validate(length(min = 1, message = "Phone number cannot be empty"))]
+    pub phone_number: Option<String>,
+    #[validate(length(min = 1, message = "Timezone cannot be empty"))]
+    pub timezone: Option<String>,
+    #[validate(length(min = 1, message = "Language cannot be empty"))]
+    pub language: Option<String>,
+    #[validate(url(message = "Avatar URL must be valid"))]
+    pub avatar_url: Option<String>,
+    #[validate(length(min = 1, message = "Location cannot be empty"))]
+    pub location: Option<String>,
+    pub is_active: Option<bool>,
+    pub is_staffuser: Option<bool>,
+    pub is_superuser: Option<bool>,
+    pub email_verified: Option<bool>,
+    pub phone_verified: Option<bool>,
+    pub mfa_enabled: Option<bool>,
+}
 
-    let metrics = sqlx::query_as::<_, AdminDashboardMetrics>(
-        r#"
-        SELECT
-            (SELECT COUNT(*) FROM users) AS total_users,
-            (SELECT COUNT(*) FROM users WHERE is_active = true) AS active_users,
-            (
-                SELECT COUNT(*)
-                FROM users
-                WHERE is_superuser = true OR is_staffuser = true
-            ) AS admin_users,
-            (
-                SELECT COUNT(*)
-                FROM users
-                WHERE email_verified = true
-            ) AS verified_users,
-            (SELECT COUNT(*) FROM blog_posts) AS total_blog_posts,
-            (
-                SELECT COUNT(*)
-                FROM blog_posts
-                WHERE is_published = true
-            ) AS published_blog_posts,
-            (
-                SELECT COUNT(*)
-                FROM comments
-                WHERE is_approved = false
-            ) AS pending_comments
-        "#,
-    )
-    .fetch_one(&state.db)
-    .await?;
+impl UpdateAdminUserRequest {
+    fn is_empty(&self) -> bool {
+        self.full_name.is_none()
+            && self.company.is_none()
+            && self.phone_number.is_none()
+            && self.timezone.is_none()
+            && self.language.is_none()
+            && self.avatar_url.is_none()
+            && self.location.is_none()
+            && self.is_active.is_none()
+            && self.is_staffuser.is_none()
+            && self.is_superuser.is_none()
+            && self.email_verified.is_none()
+            && self.phone_verified.is_none()
+            && self.mfa_enabled.is_none()
+    }
+}
 
-    Ok(ApiSuccess::ok(AdminDashboardResponse::from(metrics)))
+#[derive(Debug, FromRow)]
+struct AdminManagedUser {
+    id: Uuid,
+    email: Option<String>,
+    full_name: Option<String>,
+    company: Option<String>,
+    avatar_url: Option<String>,
+    phone_number: Option<String>,
+    timezone: String,
+    language: String,
+    location: Option<String>,
+    is_active: bool,
+    is_superuser: bool,
+    is_staffuser: bool,
+    email_verified: bool,
+    phone_verified: bool,
+    mfa_enabled: bool,
+    last_login_at: Option<DateTime<Utc>>,
+    login_count: i32,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct AdminUserResponse {
+    pub id: Uuid,
+    pub email: Option<String>,
+    pub full_name: Option<String>,
+    pub company: Option<String>,
+    pub avatar_url: Option<String>,
+    pub phone_number: Option<String>,
+    pub timezone: String,
+    pub language: String,
+    pub location: Option<String>,
+    pub is_active: bool,
+    pub is_superuser: bool,
+    pub is_staffuser: bool,
+    pub email_verified: bool,
+    pub phone_verified: bool,
+    pub mfa_enabled: bool,
+    pub last_login_at: Option<DateTime<Utc>>,
+    pub login_count: i32,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<AdminManagedUser> for AdminUserResponse {
+    fn from(user: AdminManagedUser) -> Self {
+        Self {
+            id: user.id,
+            email: user.email,
+            full_name: user.full_name,
+            company: user.company,
+            avatar_url: user.avatar_url,
+            phone_number: user.phone_number,
+            timezone: user.timezone,
+            language: user.language,
+            location: user.location,
+            is_active: user.is_active,
+            is_superuser: user.is_superuser,
+            is_staffuser: user.is_staffuser,
+            email_verified: user.email_verified,
+            phone_verified: user.phone_verified,
+            mfa_enabled: user.mfa_enabled,
+            last_login_at: user.last_login_at,
+            login_count: user.login_count,
+            created_at: user.created_at,
+            updated_at: user.updated_at,
+        }
+    }
 }
 
 #[utoipa::path(
@@ -122,7 +181,7 @@ pub async fn dashboard(
     responses(
         (status = 200, description = "Paginated list of managed users"),
         (status = 401, description = "Missing or invalid access token"),
-        (status = 403, description = "Admin privileges required"),
+        (status = 403, description = "Superuser privileges required"),
     ),
     tag = "AdminX"
 )]
@@ -142,24 +201,28 @@ pub async fn list_users(
     let list_sql = format!(
         r#"
         SELECT {MANAGED_USER_COLUMNS}
-        FROM users
+        FROM {}
         WHERE ($1::text IS NULL OR email ILIKE $1 OR full_name ILIKE $1)
           AND ($2::bool IS NULL OR is_active = $2)
           AND ($3::bool IS NULL OR is_staffuser = $3)
           AND ($4::bool IS NULL OR is_superuser = $4)
         ORDER BY created_at DESC
         LIMIT $5 OFFSET $6
-        "#
+        "#,
+        User::QUALIFIED_TABLE
     );
 
-    let count_sql = r#"
+    let count_sql = format!(
+        r#"
         SELECT COUNT(*)
-        FROM users
+        FROM {}
         WHERE ($1::text IS NULL OR email ILIKE $1 OR full_name ILIKE $1)
           AND ($2::bool IS NULL OR is_active = $2)
           AND ($3::bool IS NULL OR is_staffuser = $3)
           AND ($4::bool IS NULL OR is_superuser = $4)
-    "#;
+    "#,
+        User::QUALIFIED_TABLE
+    );
 
     let users = sqlx::query_as::<_, AdminManagedUser>(&list_sql)
         .bind(search.as_deref())
@@ -171,7 +234,7 @@ pub async fn list_users(
         .fetch_all(&state.db)
         .await?;
 
-    let total = sqlx::query_scalar::<_, i64>(count_sql)
+    let total = sqlx::query_scalar::<_, i64>(&count_sql)
         .bind(search.as_deref())
         .bind(params.is_active)
         .bind(params.is_staffuser)
@@ -191,9 +254,9 @@ pub async fn list_users(
         ("id" = Uuid, Path, description = "Managed user UUID"),
     ),
     responses(
-        (status = 200, description = "Admin view of a single user"),
+        (status = 200, description = "Admin view of a single user", body = AdminUserResponse),
         (status = 401, description = "Missing or invalid access token"),
-        (status = 403, description = "Admin privileges required"),
+        (status = 403, description = "Superuser privileges required"),
         (status = 404, description = "User not found"),
     ),
     tag = "AdminX"
@@ -206,7 +269,10 @@ pub async fn get_user(
     let actor = require_admin(&state, &headers).await?;
     tracing::debug!(admin_id = %actor.id, user_id = %id, "Loading managed user");
 
-    let sql = format!("SELECT {MANAGED_USER_COLUMNS} FROM users WHERE id = $1");
+    let sql = format!(
+        "SELECT {MANAGED_USER_COLUMNS} FROM {} WHERE id = $1",
+        User::QUALIFIED_TABLE
+    );
     let user = sqlx::query_as::<_, AdminManagedUser>(&sql)
         .bind(id)
         .fetch_optional(&state.db)
@@ -225,10 +291,10 @@ pub async fn get_user(
     ),
     request_body = UpdateAdminUserRequest,
     responses(
-        (status = 200, description = "Managed user updated"),
+        (status = 200, description = "Managed user updated", body = AdminUserResponse),
         (status = 400, description = "Validation error"),
         (status = 401, description = "Missing or invalid access token"),
-        (status = 403, description = "Admin privileges required"),
+        (status = 403, description = "Superuser privileges required"),
         (status = 404, description = "User not found"),
     ),
     tag = "AdminX"
@@ -253,7 +319,7 @@ pub async fn update_user(
 
     let sql = format!(
         r#"
-        UPDATE users
+        UPDATE {}
         SET
             full_name = COALESCE($2, full_name),
             company = COALESCE($3, company),
@@ -271,7 +337,8 @@ pub async fn update_user(
             updated_at = NOW()
         WHERE id = $1
         RETURNING {MANAGED_USER_COLUMNS}
-        "#
+        "#,
+        User::QUALIFIED_TABLE
     );
 
     let user = sqlx::query_as::<_, AdminManagedUser>(&sql)
@@ -294,67 +361,6 @@ pub async fn update_user(
         .ok_or_else(|| AppError::NotFound(format!("User {id} not found")))?;
 
     Ok(ApiSuccess::ok(AdminUserResponse::from(user)))
-}
-
-async fn require_admin(state: &AppState, headers: &HeaderMap) -> Result<AdminActor, AppError> {
-    let token = bearer_token_from_headers(headers)?;
-
-    let validation = Validation::new(Algorithm::HS256);
-    let token_data = jsonwebtoken::decode::<AccessClaims>(
-        token,
-        &DecodingKey::from_secret(state.config.jwt_secret.as_bytes()),
-        &validation,
-    )
-    .map_err(|_| AppError::Unauthorized("Invalid or expired access token".to_string()))?;
-
-    if token_data.claims.token_type != "access" {
-        return Err(AppError::Unauthorized(
-            "Only access tokens can be used for admin endpoints".to_string(),
-        ));
-    }
-
-    let user_id = Uuid::parse_str(&token_data.claims.sub)
-        .map_err(|_| AppError::Unauthorized("Invalid token subject".to_string()))?;
-
-    let actor = sqlx::query_as::<_, AdminActor>(
-        r#"
-        SELECT id, is_active, is_superuser, is_staffuser
-        FROM users
-        WHERE id = $1
-        "#,
-    )
-    .bind(user_id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or_else(|| AppError::Unauthorized("Admin account not found".to_string()))?;
-
-    if !actor.is_active {
-        return Err(AppError::Forbidden(
-            "Inactive accounts cannot access admin endpoints".to_string(),
-        ));
-    }
-
-    if !(actor.is_superuser || actor.is_staffuser) {
-        return Err(AppError::Forbidden(
-            "Admin privileges are required for this endpoint".to_string(),
-        ));
-    }
-
-    Ok(actor)
-}
-
-fn bearer_token_from_headers(headers: &HeaderMap) -> Result<&str, AppError> {
-    let raw_header = headers
-        .get(header::AUTHORIZATION)
-        .ok_or_else(|| AppError::Unauthorized("Authorization header is required".to_string()))?;
-
-    let value = raw_header.to_str().map_err(|_| {
-        AppError::Unauthorized("Authorization header must be valid UTF-8".to_string())
-    })?;
-
-    value.strip_prefix("Bearer ").ok_or_else(|| {
-        AppError::Unauthorized("Authorization header must use Bearer token".to_string())
-    })
 }
 
 fn normalize_search(search: Option<&str>) -> Option<String> {

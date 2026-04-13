@@ -5,7 +5,7 @@
 //   cargo shell
 //
 // Built-in commands:
-//   \tables               — list all tables across auth / blog / activity schemas
+//   \tables               — list all tables across non-system schemas
 //   \schema <name>        — list tables in a specific schema
 //   \d <schema.table>     — describe a table (columns, types, nullable)
 //   \indexes <schema.table> — list indexes on a table
@@ -141,7 +141,7 @@ async fn cmd_tables(pool: &PgPool) -> Result<()> {
     let sql = "
         SELECT table_schema, table_name
         FROM information_schema.tables
-        WHERE table_schema IN ('auth', 'blog', 'activity')
+        WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
         ORDER BY table_schema, table_name";
     let rows = sqlx::query(sql).fetch_all(pool).await?;
     let headers = vec!["schema".to_string(), "table".to_string()];

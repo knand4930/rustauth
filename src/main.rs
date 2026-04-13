@@ -1,10 +1,13 @@
+mod admin;
 mod apps;
 mod config;
 mod db;
 mod error;
+mod model;
 mod response;
 mod state;
 
+use admin::initialize_adminx;
 use axum::http::{Method, header};
 use config::AppConfig;
 use state::AppState;
@@ -36,7 +39,13 @@ async fn main() {
     tracing::info!("Database connected");
 
     let addr = format!("{}:{}", config.server_host, config.server_port);
-    let state = AppState::new(pool, config);
+    let admin_panel = initialize_adminx();
+    tracing::info!(
+        "AdminX initialized with {} apps and {} resources",
+        admin_panel.app_count,
+        admin_panel.resource_count
+    );
+    let state = AppState::new(pool, config, admin_panel);
 
     let cors = CorsLayer::new()
         .allow_origin(tower_http::cors::Any)
@@ -51,6 +60,7 @@ async fn main() {
 
     let app = axum::Router::new()
         .route("/api/v1/health", axum::routing::get(health_check))
+        .merge(admin::routes())
         .merge(apps::routes())
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", apps::ApiDoc::openapi()))
         .layer(TraceLayer::new_for_http())

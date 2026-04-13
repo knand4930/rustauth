@@ -49,9 +49,9 @@ pub async fn create_blog_post(
     let is_published = body.is_published.unwrap_or(false);
     let short_desc = body.short_description.clone().unwrap_or_default();
 
-    let post = sqlx::query_as::<_, BlogPost>(
+    let insert_sql = format!(
         r#"
-        INSERT INTO blog_posts (
+        INSERT INTO {} (
             id, title, slug, author_id, content, short_description,
             is_published, published_at, created_at, updated_at
         )
@@ -61,15 +61,17 @@ pub async fn create_blog_post(
         )
         RETURNING *
         "#,
-    )
-    .bind(&body.title)
-    .bind(&slug)
-    .bind(body.author_id)
-    .bind(&body.content)
-    .bind(&short_desc)
-    .bind(is_published)
-    .fetch_one(&state.db)
-    .await?;
+        BlogPost::QUALIFIED_TABLE
+    );
+    let post = sqlx::query_as::<_, BlogPost>(&insert_sql)
+        .bind(&body.title)
+        .bind(&slug)
+        .bind(body.author_id)
+        .bind(&body.content)
+        .bind(&short_desc)
+        .bind(is_published)
+        .fetch_one(&state.db)
+        .await?;
 
     Ok(ApiSuccess::created(post))
 }
@@ -98,31 +100,38 @@ pub async fn list_blog_posts(
     let published_only = params.published_only.unwrap_or(false);
 
     let (posts, total) = if published_only {
-        let posts = sqlx::query_as::<_, BlogPost>(
-            "SELECT * FROM blog_posts WHERE is_published = true ORDER BY published_at DESC LIMIT $1 OFFSET $2",
-        )
-        .bind(per_page)
-        .bind(offset)
-        .fetch_all(&state.db)
-        .await?;
+        let list_sql = format!(
+            "SELECT * FROM {} WHERE is_published = true ORDER BY published_at DESC LIMIT $1 OFFSET $2",
+            BlogPost::QUALIFIED_TABLE
+        );
+        let posts = sqlx::query_as::<_, BlogPost>(&list_sql)
+            .bind(per_page)
+            .bind(offset)
+            .fetch_all(&state.db)
+            .await?;
 
-        let total = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM blog_posts WHERE is_published = true",
-        )
-        .fetch_one(&state.db)
-        .await?;
+        let count_sql = format!(
+            "SELECT COUNT(*) FROM {} WHERE is_published = true",
+            BlogPost::QUALIFIED_TABLE
+        );
+        let total = sqlx::query_scalar::<_, i64>(&count_sql)
+            .fetch_one(&state.db)
+            .await?;
 
         (posts, total)
     } else {
-        let posts = sqlx::query_as::<_, BlogPost>(
-            "SELECT * FROM blog_posts ORDER BY created_at DESC LIMIT $1 OFFSET $2",
-        )
-        .bind(per_page)
-        .bind(offset)
-        .fetch_all(&state.db)
-        .await?;
+        let list_sql = format!(
+            "SELECT * FROM {} ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+            BlogPost::QUALIFIED_TABLE
+        );
+        let posts = sqlx::query_as::<_, BlogPost>(&list_sql)
+            .bind(per_page)
+            .bind(offset)
+            .fetch_all(&state.db)
+            .await?;
 
-        let total = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM blog_posts")
+        let count_sql = format!("SELECT COUNT(*) FROM {}", BlogPost::QUALIFIED_TABLE);
+        let total = sqlx::query_scalar::<_, i64>(&count_sql)
             .fetch_one(&state.db)
             .await?;
 
@@ -147,7 +156,8 @@ pub async fn get_blog_post(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
-    let post = sqlx::query_as::<_, BlogPost>("SELECT * FROM blog_posts WHERE id = $1")
+    let get_sql = format!("SELECT * FROM {} WHERE id = $1", BlogPost::QUALIFIED_TABLE);
+    let post = sqlx::query_as::<_, BlogPost>(&get_sql)
         .bind(id)
         .fetch_optional(&state.db)
         .await?
@@ -173,9 +183,9 @@ pub async fn update_blog_post(
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateBlogPostRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let post = sqlx::query_as::<_, BlogPost>(
+    let update_sql = format!(
         r#"
-        UPDATE blog_posts SET
+        UPDATE {} SET
             title             = COALESCE($2, title),
             content           = COALESCE($3, content),
             short_description = COALESCE($4, short_description),
@@ -188,15 +198,17 @@ pub async fn update_blog_post(
         WHERE id = $1
         RETURNING *
         "#,
-    )
-    .bind(id)
-    .bind(&body.title)
-    .bind(&body.content)
-    .bind(&body.short_description)
-    .bind(body.is_published)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or_else(|| AppError::NotFound(format!("Blog post {id} not found")))?;
+        BlogPost::QUALIFIED_TABLE
+    );
+    let post = sqlx::query_as::<_, BlogPost>(&update_sql)
+        .bind(id)
+        .bind(&body.title)
+        .bind(&body.content)
+        .bind(&body.short_description)
+        .bind(body.is_published)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Blog post {id} not found")))?;
 
     Ok(ApiSuccess::ok(post))
 }
@@ -216,10 +228,8 @@ pub async fn delete_blog_post(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
-    let result = sqlx::query("DELETE FROM blog_posts WHERE id = $1")
-        .bind(id)
-        .execute(&state.db)
-        .await?;
+    let delete_sql = format!("DELETE FROM {} WHERE id = $1", BlogPost::QUALIFIED_TABLE);
+    let result = sqlx::query(&delete_sql).bind(id).execute(&state.db).await?;
 
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound(format!("Blog post {id} not found")));
@@ -247,19 +257,22 @@ pub async fn create_comment(
     Path(blog_id): Path<Uuid>,
     Json(body): Json<CreateCommentRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let exists =
-        sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM blog_posts WHERE id = $1)")
-            .bind(blog_id)
-            .fetch_one(&state.db)
-            .await?;
+    let exists_sql = format!(
+        "SELECT EXISTS(SELECT 1 FROM {} WHERE id = $1)",
+        BlogPost::QUALIFIED_TABLE
+    );
+    let exists = sqlx::query_scalar::<_, bool>(&exists_sql)
+        .bind(blog_id)
+        .fetch_one(&state.db)
+        .await?;
 
     if !exists {
         return Err(AppError::NotFound(format!("Blog post {blog_id} not found")));
     }
 
-    let comment = sqlx::query_as::<_, Comment>(
+    let insert_sql = format!(
         r#"
-        INSERT INTO comments (
+        INSERT INTO {} (
             id, blog_post_id, user_id, guest_name, parent_id,
             content, is_approved, created_at, updated_at
         )
@@ -269,14 +282,16 @@ pub async fn create_comment(
         )
         RETURNING *
         "#,
-    )
-    .bind(blog_id)
-    .bind(body.user_id)
-    .bind(&body.guest_name)
-    .bind(body.parent_id)
-    .bind(&body.content)
-    .fetch_one(&state.db)
-    .await?;
+        Comment::QUALIFIED_TABLE
+    );
+    let comment = sqlx::query_as::<_, Comment>(&insert_sql)
+        .bind(blog_id)
+        .bind(body.user_id)
+        .bind(&body.guest_name)
+        .bind(body.parent_id)
+        .bind(&body.content)
+        .fetch_one(&state.db)
+        .await?;
 
     Ok(ApiSuccess::created(comment))
 }
@@ -295,12 +310,14 @@ pub async fn list_comments(
     State(state): State<AppState>,
     Path(blog_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
-    let comments = sqlx::query_as::<_, Comment>(
-        "SELECT * FROM comments WHERE blog_post_id = $1 ORDER BY created_at ASC",
-    )
-    .bind(blog_id)
-    .fetch_all(&state.db)
-    .await?;
+    let list_sql = format!(
+        "SELECT * FROM {} WHERE blog_post_id = $1 ORDER BY created_at ASC",
+        Comment::QUALIFIED_TABLE
+    );
+    let comments = sqlx::query_as::<_, Comment>(&list_sql)
+        .bind(blog_id)
+        .fetch_all(&state.db)
+        .await?;
 
     Ok(ApiList::new(comments))
 }
