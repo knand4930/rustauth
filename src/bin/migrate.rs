@@ -27,6 +27,18 @@ const YLW: &str = "\x1b[33m";
 const RED: &str = "\x1b[31m";
 const CYN: &str = "\x1b[36m";
 
+fn print_usage() {
+    eprintln!("Usage:");
+    eprintln!("  {BLD}cargo migrate{RST}                    apply all pending migrations");
+    eprintln!("  {BLD}cargo migrate status{RST}             show migration status");
+    eprintln!(
+        "  {BLD}cargo migrate --fake-initial{RST}     mark first migration as applied (no SQL)"
+    );
+    eprintln!("  {BLD}cargo migrate <name>{RST}             move DB to that migration state");
+    eprintln!("  {BLD}cargo migrate <name> --fake{RST}      mark migration as applied (no SQL)");
+    eprintln!();
+}
+
 // ── Migration history table ───────────────────────────────────────────────────
 
 async fn ensure_history_table(pool: &PgPool) -> Result<()> {
@@ -512,6 +524,13 @@ async fn cmd_status(pool: &PgPool) -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let args: Vec<String> = env::args().skip(1).collect();
+
+    if matches!(args.as_slice(), [flag] if matches!(flag.as_str(), "-h" | "--help")) {
+        print_usage();
+        return Ok(());
+    }
+
     dotenv().ok();
 
     let database_url = env::var("DATABASE_URL").context("DATABASE_URL not set in .env")?;
@@ -520,19 +539,11 @@ async fn main() -> Result<()> {
         .context("Cannot connect to database — check DATABASE_URL")?;
     ensure_database_prereqs(&pool).await?;
 
-    let args: Vec<String> = env::args().collect();
-    let arg1 = args.get(1).map(|s| s.as_str());
-    let arg2 = args.get(2).map(|s| s.as_str());
-
-    match (arg1, arg2) {
-        // cargo migrate
-        (None, _) => cmd_run(&pool).await?,
-        // cargo migrate status
-        (Some("status"), _) => cmd_status(&pool).await?,
-        // cargo migrate --fake-initial
-        (Some("--fake-initial"), _) => cmd_fake_initial(&pool).await?,
-        // cargo migrate <name_or_module> --fake
-        (Some(name), Some("--fake")) if !name.starts_with("--") => {
+    match args.as_slice() {
+        [] => cmd_run(&pool).await?,
+        [status] if status == "status" => cmd_status(&pool).await?,
+        [fake_initial] if fake_initial == "--fake-initial" => cmd_fake_initial(&pool).await?,
+        [name, fake] if fake == "--fake" && !name.starts_with("--") => {
             if let Err(e) = cmd_target(&pool, name, true).await {
                 // fallback to module fake
                 if let Err(_) = cmd_target_module(&pool, name).await {
@@ -541,23 +552,15 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        // cargo migrate <name>
-        (Some(name), _) if !name.starts_with("--") => cmd_target(&pool, name, false).await?,
-        // unknown flag
-        (Some(flag), _) => {
+        [name] if !name.starts_with("--") => cmd_target(&pool, name, false).await?,
+        [flag] => {
             eprintln!("{RED}Unknown option: {flag}{RST}\n");
-            eprintln!("Usage:");
-            eprintln!("  {BLD}cargo migrate{RST}                    apply all pending migrations");
-            eprintln!("  {BLD}cargo migrate status{RST}             show migration status");
-            eprintln!(
-                "  {BLD}cargo migrate --fake-initial{RST}     mark first migration as applied (no SQL)"
-            );
-            eprintln!(
-                "  {BLD}cargo migrate <name>{RST}             move DB to that migration state"
-            );
-            eprintln!(
-                "  {BLD}cargo migrate <name> --fake{RST}      mark migration as applied (no SQL)"
-            );
+            print_usage();
+            std::process::exit(1);
+        }
+        _ => {
+            eprintln!("{RED}Invalid migrate arguments.{RST}\n");
+            print_usage();
             std::process::exit(1);
         }
     }

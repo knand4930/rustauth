@@ -42,6 +42,23 @@ const CYN: &str = "\x1b[36m";
 const BLU: &str = "\x1b[34m";
 const MAG: &str = "\x1b[35m";
 
+fn print_usage() {
+    println!("Usage:");
+    println!(
+        "  {BLD}cargo makemigrations{RST}                 generate a migration with the default label"
+    );
+    println!(
+        "  {BLD}cargo makemigrations <label>{RST}         generate a migration with a custom label"
+    );
+    println!();
+    println!("Notes:");
+    println!(
+        "  Labels are normalized to lowercase and may contain letters, digits, and underscores."
+    );
+    println!("  Example: {BLD}cargo makemigrations add_user_profile{RST}");
+    println!();
+}
+
 // ── Discovery helpers ────────────────────────────────────────────────────────
 
 fn discover_models(src_dir: &Path) -> Result<Vec<(String, String)>> {
@@ -1402,11 +1419,43 @@ fn write_migration(diff: &Diff, label: &str) -> Result<PathBuf> {
     Ok(dir)
 }
 
+fn normalize_label(label: &str) -> Result<String> {
+    let normalized = label.trim().replace('-', "_").to_ascii_lowercase();
+
+    if normalized.is_empty() {
+        anyhow::bail!("Migration label cannot be empty.");
+    }
+
+    if !normalized
+        .chars()
+        .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_')
+    {
+        anyhow::bail!(
+            "Invalid migration label '{label}'. Use letters, digits, underscores, or hyphens only."
+        );
+    }
+
+    Ok(normalized)
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 fn main() -> Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    let label = args.get(1).map(|value| value.as_str()).unwrap_or("auto");
+    let args: Vec<String> = std::env::args().skip(1).collect();
+
+    let label = match args.as_slice() {
+        [] => "auto".to_string(),
+        [flag] if matches!(flag.as_str(), "-h" | "--help") => {
+            print_usage();
+            return Ok(());
+        }
+        [label] if !label.starts_with("--") => normalize_label(label)?,
+        _ => {
+            eprintln!("{RED}Invalid arguments for cargo makemigrations.{RST}\n");
+            print_usage();
+            std::process::exit(1);
+        }
+    };
 
     println!("\n{BLD}╔══════════════════════════════════════╗");
     println!("║  cargo makemigrations               ║");
@@ -1525,7 +1574,7 @@ fn main() -> Result<()> {
     }
 
     let is_first = previous_state.tables.is_empty();
-    let migration_dir = write_migration(&diff, label)?;
+    let migration_dir = write_migration(&diff, &label)?;
     save_state(&sorted_tables)?;
 
     let statement_count = diff
@@ -1551,4 +1600,23 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_label;
+
+    #[test]
+    fn normalizes_hyphenated_labels() {
+        assert_eq!(
+            normalize_label("Add-User-Profile").expect("normalized label"),
+            "add_user_profile"
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_labels() {
+        assert!(normalize_label("bad label").is_err());
+        assert!(normalize_label("").is_err());
+    }
 }

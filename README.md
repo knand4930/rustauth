@@ -10,15 +10,19 @@ A production-ready **Rust authentication service** with user management, blog fu
 - [Project Architecture](#project-architecture)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
+  - [Complete Setup Guide for New Users](#complete-setup-guide-for-new-users)
+  - [TL;DR (Quick Setup)](#tldr-quick-setup)
 - [Setup & Configuration](#setup--configuration)
 - [Quick Start](#quick-start)
 - [API Documentation](#api-documentation)
 - [Project Commands](#project-commands)
 - [Database Management](#database-management)
 - [Development Workflow](#development-workflow)
+- [Troubleshooting](#troubleshooting)
 - [Error Handling](#error-handling)
 - [Project Structure](#project-structure)
 - [Contributing](#contributing)
+- [Support & Community](#support--community)
 - [License](#license)
 
 ---
@@ -255,100 +259,199 @@ This project serves as both a **production-ready service** and a **learning reso
 
 ## Installation
 
-### 1. Clone the Repository
+### Complete Setup Guide for New Users
 
+If you're new to Rust or this project, follow this detailed step-by-step guide. Each step explains what you're doing and why.
+
+#### Step 1: Check Your System
+
+Before starting, verify your operating system and determine which installation method to use:
+
+**Windows Users:**
+- Use Windows Subsystem for Linux 2 (WSL2) or install native tools
+- We recommend WSL2 for better compatibility
+
+**macOS Users:**
+- Make sure you have Xcode Command Line Tools installed
+  ```bash
+  xcode-select --install
+  ```
+
+**Linux Users (Ubuntu/Debian):**
+- Ensure you have build essentials installed
+  ```bash
+  sudo apt-get update
+  sudo apt-get install build-essential
+  ```
+
+#### Step 2: Install Rust (The Programming Language)
+
+Rust is the core language needed to compile and run this project.
+
+**All Operating Systems:**
 ```bash
-git clone <repository-url>
-cd authentication
-```
-
-### 2. Install Rust
-
-Follow the official [Rust installation guide](https://www.rust-lang.org/tools/install):
-
-```bash
+# Download and run the Rust installer
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Follow the prompts (usually just press Enter to accept defaults)
+
+# Load Rust environment variables
 source $HOME/.cargo/env
 ```
 
-Verify installation:
+**Verify Installation:**
 ```bash
-rustc --version
-cargo --version
+rustc --version    # Should print: rustc X.Y.Z (...)
+cargo --version    # Should print: cargo X.Y.Z (...)
 ```
 
-### 3. Install PostgreSQL
+If you see version numbers, you're good to go! If not, restart your terminal and try again.
 
-**macOS:**
+#### Step 3: Install PostgreSQL (The Database)
+
+PostgreSQL is where we store user accounts, blog posts, and other data.
+
+**macOS (using Homebrew):**
 ```bash
-brew install postgresql
-brew services start postgresql
+# Install Homebrew if you don't have it
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Install PostgreSQL
+brew install postgresql@15
+
+# Start PostgreSQL service
+brew services start postgresql@15
+
+# Verify installation
+psql --version    # Should print: psql (PostgreSQL) X.Y.Z
 ```
 
 **Linux (Ubuntu/Debian):**
 ```bash
+# Update package list
+sudo apt-get update
+
+# Install PostgreSQL
+sudo apt-get install postgresql postgresql-contrib
+
+# Start PostgreSQL
+sudo systemctl start postgresql
+
+# Verify installation
+psql --version
+```
+
+**Windows (WSL2):**
+```bash
+# Inside your WSL2 terminal
 sudo apt-get update
 sudo apt-get install postgresql postgresql-contrib
+
+# Start PostgreSQL
 sudo systemctl start postgresql
+
+# Verify installation
+psql --version
 ```
 
-**Windows:**
-Download from [PostgreSQL Downloads](https://www.postgresql.org/download/windows/) and follow the installer.
+**Docker Alternative (All Platforms):**
+If you have Docker installed, you can run PostgreSQL in a container:
+```bash
+docker run -d \
+  --name postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -p 5432:5432 \
+  postgres:15-alpine
 
-### 4. Install Diesel CLI
+# Verify it's running
+docker ps
+```
+
+#### Step 4: Install Diesel CLI (Database Migration Tool)
+
+Diesel CLI helps manage database schema changes safely.
 
 ```bash
+# Install Diesel CLI for PostgreSQL
 cargo install diesel_cli --no-default-features --features postgres
+
+# This takes a few minutes - it's compiling from source
+
+# Verify installation
+diesel --version    # Should print: diesel X.Y.Z
 ```
 
-Verify installation:
-```bash
-diesel --version
-```
+#### Step 5: Install Redis (Optional but Recommended)
 
-### 5. Install Redis (Optional but Recommended)
+Redis is used for caching and session management. It's optional but recommended for production-like testing.
 
 **macOS:**
 ```bash
 brew install redis
 brew services start redis
+
+# Verify installation
+redis-cli ping    # Should print: PONG
 ```
 
 **Linux (Ubuntu/Debian):**
 ```bash
 sudo apt-get install redis-server
+
 sudo systemctl start redis-server
+
+# Verify installation
+redis-cli ping
 ```
 
-**Docker:**
+**Windows (WSL2):**
 ```bash
-docker run -d -p 6379:6379 redis:latest
+sudo apt-get install redis-server
+sudo systemctl start redis-server
+redis-cli ping
 ```
 
----
+**Docker Alternative:**
+```bash
+docker run -d \
+  --name redis \
+  -p 6379:6379 \
+  redis:7-alpine
 
-## Setup & Configuration
+# Verify it's running
+docker exec redis redis-cli ping    # Should print: PONG
+```
 
-### 1. Create Environment File
+#### Step 6: Clone the Repository
 
-Copy the environment template and configure for your local setup:
+Get the project code from version control:
 
 ```bash
-cp .env.example .env  # If example exists, or create from scratch
+# Clone the repository
+git clone <repository-url>
+cd authentication
+
+# Verify you're in the right directory
+pwd    # Should print path ending with 'authentication'
+ls     # Should show: Cargo.toml, README.md, migrations/, src/
 ```
 
-Create `.env` in the project root:
+#### Step 7: Create Environment Configuration
 
-```env
+The `.env` file stores sensitive configuration that varies between environments:
+
+```bash
+# Create the environment file
+cat > .env << 'EOF'
 # Database Configuration
-DATABASE_URL=postgres://postgres:password@localhost:5432/authentication_dev
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/authentication_dev
 DATABASE_POOL_SIZE=5
 
 # Server Configuration
 SERVER_ADDR=127.0.0.1
 SERVER_PORT=8000
 
-# JWT Configuration
+# JWT Configuration (use a strong 32+ character random string)
 JWT_SECRET=your_super_secret_key_here_change_in_production_min_32_chars
 JWT_EXPIRATION_HOURS=24
 
@@ -367,47 +470,282 @@ RUST_LOG=info,authentication=debug
 
 # Environment
 APP_ENV=development
+EOF
 ```
 
-**Important Security Notes:**
-- Never commit `.env` to git
-- Use strong, random `JWT_SECRET` (minimum 32 characters)
-- Rotate credentials regularly in production
-- Use environment-specific `.env.production`, `.env.staging`
+**Important:** The `.env` file contains sensitive information and should never be committed to version control. Check your `.gitignore` file to ensure it contains `.env`.
 
-### 2. Create Database
+#### Step 8: Create the Database
+
+Create a fresh PostgreSQL database for development:
 
 ```bash
+# Simple method using createdb
 createdb authentication_dev
+
+# Verify it was created
+psql -l | grep authentication_dev
 ```
 
-Or using `psql`:
+If `createdb` is not found, use this alternative:
 ```bash
 psql -U postgres -c "CREATE DATABASE authentication_dev;"
 ```
 
-### 3. Run Database Migrations
+#### Step 9: Run Database Migrations
+
+Migrations set up the database schema (tables, columns, relationships):
 
 ```bash
+# Apply all pending migrations
 cargo run --bin migrate
+
+# Verify migrations ran successfully
+# You should see messages like: "Running migration 20260407101804"
+
+# Check migration status
+cargo run --bin showmigrations
 ```
 
-This creates the database schema from migration files in `migrations/`.
+#### Step 10: Download Dependencies and Build
+
+Compile the project and download all required libraries:
+
+```bash
+# Build the project (this takes several minutes on first run)
+cargo build
+
+# If build succeeds, you'll see: "Finished debug [unoptimized + debuginfo]"
+
+# If there are errors, see the Troubleshooting section below
+```
+
+#### Step 11: Run the Application
+
+Start the web server:
+
+```bash
+# Start the application
+cargo run
+
+# Watch for output like:
+# INFO authentication: Server listening on 0.0.0.0:8000
+# INFO authentication: Connected to PostgreSQL
+```
+
+The server is now running! Keep this terminal open.
+
+#### Step 12: Verify Everything Works
+
+In a new terminal window, test the application:
+
+```bash
+# Check if the server is responding
+curl http://127.0.0.1:8000/health
+
+# Expected output: JSON response with status
+
+# Open API documentation in your browser
+open http://127.0.0.1:8000/swagger-ui/
+# or on Linux/WSL:
+# xdg-open http://127.0.0.1:8000/swagger-ui/
+```
+
+🎉 **Congratulations!** Your project is now set up and running!
+
+---
+
+### TL;DR (Quick Setup)
+
+For experienced developers who just want to get started quickly:
+
+```bash
+# 1. Ensure Rust, PostgreSQL, Diesel CLI are installed
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source $HOME/.cargo/env
+
+# 2. For macOS
+brew install postgresql@15 redis
+brew services start postgresql@15 redis
+cargo install diesel_cli --no-default-features --features postgres
+
+# 3. For Linux (Ubuntu/Debian)
+sudo apt-get install postgresql postgresql-contrib redis-server
+sudo systemctl start postgresql redis-server
+cargo install diesel_cli --no-default-features --features postgres
+
+# 4. Clone and setup
+git clone <repository-url>
+cd authentication
+
+# 5. Create .env
+cp .env.example .env    # OR create manually with your DATABASE_URL and JWT_SECRET
+
+# 6. Setup database
+createdb authentication_dev
+cargo run --bin migrate
+
+# 7. Build and run
+cargo build
+cargo run
+
+# 8. Open your browser
+open http://127.0.0.1:8000/swagger-ui/
+```
+
+---
+
+## Prerequisites
+
+### System Requirements
+- **OS**: Linux (Ubuntu 20.04+), macOS (10.15+), or Windows (WSL2)
+- **RAM**: 2GB minimum for compilation (4GB+ recommended)
+- **Disk**: 5GB available space for dependencies and build artifacts
+- **Internet**: Required for downloading dependencies
+
+### Required Software
+
+| Software | Version | Purpose | Status |
+|----------|---------|---------|--------|
+| **Rust** | 1.70.0+ | Language & compiler | Required |
+| **PostgreSQL** | 14+ | Primary database | Required |
+| **Diesel CLI** | 2.0.0+ | Database migrations | Required |
+| **Git** | 2.25+ | Version control | Required |
+| **Redis** | 6.0+ | Cache & sessions | Optional* |
+
+*Optional but recommended for production-like testing
+
+### Optional Tools
+- **Docker**: Run PostgreSQL and Redis in containers
+- **cargo-watch**: Auto-rebuild on file changes (`cargo install cargo-watch`)
+- **sqlx-cli**: Advanced database debugging
+- **HTTPie** or **Insomnia**: API testing (alternative to curl)
+
+---
+
+## Setup & Configuration
+
+This section covers post-installation configuration for the application.
+
+### 1. Create Environment File
+
+The `.env` file contains configuration specific to your development environment. Create it in the project root:
+
+```bash
+cp .env.example .env    # If an example file exists
+```
+
+Or manually create `.env` with:
+
+```env
+# Database Configuration
+# Modify the password if you set a different PostgreSQL password during installation
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/authentication_dev
+DATABASE_POOL_SIZE=5
+
+# Server Configuration
+# 127.0.0.1 = localhost (only accessible from your machine)
+# 0.0.0.0 = all network interfaces (accessible from other machines)
+SERVER_ADDR=127.0.0.1
+SERVER_PORT=8000
+
+# JWT Configuration
+# Generate a strong random secret: `openssl rand -base64 32`
+# Must be at least 32 characters for production
+JWT_SECRET=your_super_secret_key_here_change_in_production_min_32_chars
+JWT_EXPIRATION_HOURS=24
+
+# Redis Configuration (optional, leave as-is if using default Redis setup)
+REDIS_URL=redis://127.0.0.1:6379/0
+
+# Email Configuration (optional, for sending verification emails)
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=your-email@gmail.com
+SMTP_PASSWORD=your-app-specific-password
+SMTP_FROM_EMAIL=noreply@example.com
+
+# Logging Level
+# Options: trace, debug, info, warn, error
+# Use 'debug' for development, 'info' for production
+RUST_LOG=info,authentication=debug
+
+# Environment Type
+# Options: development, staging, production
+APP_ENV=development
+```
+
+**Security Best Practices:**
+- ⚠️ Never commit `.env` to git (check `.gitignore` includes it)
+- Use strong, random `JWT_SECRET` (minimum 32 characters)
+- Generate secure secret: `openssl rand -base64 32`
+- Rotate credentials regularly in production
+- Use environment-specific files: `.env.production`, `.env.staging`
+- Update SMTP credentials for email functionality
+
+### 2. Create Database
+
+Create a PostgreSQL database for development:
+
+**Method 1 (Recommended):**
+```bash
+createdb authentication_dev
+```
+
+**Method 2 (Using psql):**
+```bash
+psql -U postgres -c "CREATE DATABASE authentication_dev;"
+```
+
+**Method 3 (Interactive):**
+```bash
+psql -U postgres
+# At the psql prompt type:
+# postgres=# CREATE DATABASE authentication_dev;
+# postgres=# \q
+```
+
+Verify the database was created:
+```bash
+psql -l | grep authentication_dev
+```
+
+### 3. Run Database Migrations
+
+Apply the database schema using migrations:
+
+```bash
+# Run all pending migrations
+cargo run --bin migrate
+
+# Expected output shows each migration being applied
+```
+
+Check migration status:
+```bash
+cargo run --bin showmigrations
+```
 
 ### 4. Verify Setup
 
-Run a quick build to ensure all dependencies resolve:
+Test that everything is configured correctly:
 
 ```bash
-cargo build
+# Validate Rust code compiles
+cargo check
+
+# Expected: "Finished `dev` profile" with no errors
 ```
 
-### 5. Generate Migrations After Model Changes
+### 5. Generate and Review Documentation
 
-If you modify app models, generate a migration from the current app structure:
+Generate Rust code documentation:
 
 ```bash
-cargo makemigrations
+# Generate and open HTML documentation
+cargo doc --open
+
+# Creates documentation for all crates and dependencies
 ```
 
 ---
@@ -870,6 +1208,339 @@ RUST_LOG=debug cargo test -- --nocapture
 
 ---
 
+## Troubleshooting
+
+This section covers common issues and their solutions.
+
+### Build Issues
+
+#### Error: "Could not compile `authentication`"
+
+**Problem:** The project fails to compile.
+
+**Solutions:**
+1. Ensure Rust is up to date:
+   ```bash
+   rustup update
+   cargo clean
+   cargo build
+   ```
+
+2. Check for conflicting dependencies:
+   ```bash
+   cargo tree
+   cargo update
+   ```
+
+3. For Windows users, ensure you have Visual Studio Build Tools installed
+
+---
+
+#### Error: "error: linker `cc` not found"
+
+**Problem:** Missing C compiler for linking native code.
+
+**Solutions:**
+- **macOS:** Install Xcode Command Line Tools
+  ```bash
+  xcode-select --install
+  ```
+
+- **Linux (Ubuntu):** Install build essentials
+  ```bash
+  sudo apt-get install build-essential
+  ```
+
+- **Windows:** Download Visual Studio Build Tools from official website
+
+---
+
+### Database Issues
+
+#### Error: "database does not exist"
+
+**Problem:** PostgreSQL database hasn't been created yet.
+
+**Solutions:**
+```bash
+# Create the database
+createdb authentication_dev
+
+# Or explicitly
+psql -U postgres -c "CREATE DATABASE authentication_dev;"
+
+# Verify creation
+psql -l | grep authentication_dev
+```
+
+---
+
+#### Error: "password authentication failed for user"
+
+**Problem:** PostgreSQL credentials in `.env` are incorrect.
+
+**Solutions:**
+1. Verify PostgreSQL is running:
+   ```bash
+   # macOS
+   brew services list | grep postgres
+   
+   # Linux
+   sudo systemctl status postgresql
+   ```
+
+2. Check your `.env` DATABASE_URL:
+   ```bash
+   # Format: postgres://username:password@host:port/database
+   # Common defaults: postgres://postgres:postgres@localhost:5432/authentication_dev
+   ```
+
+3. Reset PostgreSQL password:
+   ```bash
+   psql -U postgres
+   postgres=# ALTER USER postgres WITH PASSWORD 'newpassword';
+   postgres=# \q
+   ```
+
+---
+
+#### Error: "Migration failed" or "could not find migration"
+
+**Problem:** Database migrations didn't apply correctly.
+
+**Solutions:**
+```bash
+# Check migration status
+cargo run --bin showmigrations
+
+# Reset migrations (WARNING: deletes all data)
+psql -U postgres -d authentication_dev -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+
+# Re-run migrations
+cargo run --bin migrate
+```
+
+---
+
+### Runtime Issues
+
+#### Error: "could not connect to database" or "connection refused"
+
+**Problem:** PostgreSQL is not running or network connection failed.
+
+**Solutions:**
+```bash
+# Start PostgreSQL service
+# macOS
+brew services start postgresql@15
+
+# Linux
+sudo systemctl start postgresql
+
+# Verify PostgreSQL is listening
+psql -U postgres -c "SELECT 1"
+```
+
+---
+
+#### Error: Server won't start / "Port 8000 already in use"
+
+**Problem:** Another process is using the server port.
+
+**Solutions:**
+```bash
+# Find process using port 8000
+lsof -i :8000          # macOS/Linux
+netstat -ano | grep 8000  # Windows
+
+# Kill the process (replace PID with actual process ID)
+kill -9 <PID>     # macOS/Linux
+taskkill /PID <PID> /F  # Windows
+
+# Or change SERVER_PORT in .env to a different port (e.g., 8001)
+```
+
+---
+
+#### Error: "Redis connection refused"
+
+**Problem:** Redis is not running (it's optional but recommended).
+
+**Solutions:**
+```bash
+# Start Redis
+# macOS
+brew services start redis
+
+# Linux
+sudo systemctl start redis-server
+
+# Verify Redis is running
+redis-cli ping    # Should print: PONG
+
+# To disable Redis (optional):
+# Comment out or remove REDIS_URL from .env
+```
+
+---
+
+### Environment Issues
+
+#### Error: "Variable not found" or configuration errors
+
+**Problem:** `.env` file isn't being loaded.
+
+**Solutions:**
+1. Verify `.env` exists in project root:
+   ```bash
+   ls -la .env
+   ```
+
+2. Check `.env` file format (no spaces around `=`):
+   ```bash
+   # Correct
+   DATABASE_URL=postgres://localhost/db
+   
+   # Incorrect
+   DATABASE_URL = postgres://localhost/db
+   ```
+
+3. Reload environment variables:
+   ```bash
+   # Stop cargo run (Ctrl+C)
+   source .env
+   cargo run
+   ```
+
+---
+
+### Performance Issues
+
+#### Slow startup time or build taking too long
+
+**Problem:** First build or compilation is very slow.
+
+**Solutions:**
+```bash
+# This is normal for Rust! First build can take 5-10 minutes
+# Subsequent builds are faster
+
+# For development, use debug builds (faster):
+cargo build         # This is already the default
+
+# Only use release if you need optimization:
+cargo build --release  # Much slower to build, but runs faster
+```
+
+---
+
+#### Slow API response times
+
+**Problem:** Requests are taking longer than expected.
+
+**Solutions:**
+1. Enable query logging to see slow queries:
+   ```bash
+   RUST_LOG=debug cargo run
+   ```
+
+2. Check PostgreSQL is running efficiently:
+   ```bash
+   psql -U postgres -d authentication_dev -c "SELECT count(*) FROM users;"
+   ```
+
+3. Ensure Redis is running (improves caching):
+   ```bash
+   redis-cli ping
+   ```
+
+---
+
+### Testing Issues
+
+#### Tests fail or don't run
+
+**Problem:** Can't run tests successfully.
+
+**Solutions:**
+```bash
+# Run all tests
+cargo test
+
+# Run tests with output
+cargo test -- --nocapture
+
+# Run specific test
+cargo test test_name
+
+# Run tests in single-threaded mode (if tests interfere)
+cargo test -- --test-threads=1
+```
+
+---
+
+### API Issues
+
+#### Error: "Invalid JWT token" or "Unauthorized"
+
+**Problem:** Authentication token is invalid or expired.
+
+**Solutions:**
+1. Get a new token by logging in:
+   ```bash
+   curl -X POST http://127.0.0.1:8000/api/auth/login \
+     -H "Content-Type: application/json" \
+     -d '{
+       "email": "user@example.com",
+       "password": "SecurePass123!"
+     }'
+   ```
+
+2. Include the token in subsequent requests:
+   ```bash
+   curl -H "Authorization: Bearer YOUR_TOKEN_HERE" \
+     http://127.0.0.1:8000/api/users
+   ```
+
+---
+
+#### Error: "CORS policy: No 'Access-Control-Allow-Origin' header"
+
+**Problem:** Frontend cannot make requests due to CORS restrictions.
+
+**Solutions:**
+1. Ensure CORS middleware is enabled in `src/main.rs`
+
+2. Configure allowed origins in `.env` or code:
+   ```bash
+   # Add your frontend URL to allowed CORS origins
+   ```
+
+3. For development, temporarily allow all origins (not for production):
+   ```rust
+   // In src/main.rs
+   .layer(cors_layer.allow_origin("*".parse().unwrap()))
+   ```
+
+---
+
+### Getting Help
+
+If you encounter an issue not listed here:
+
+1. **Check logs**: Run with debug logging
+   ```bash
+   RUST_LOG=debug cargo run
+   ```
+
+2. **Search issues**: Check GitHub issues for similar problems
+
+3. **Documentation**: Review [Axum](https://docs.rs/axum/) or [SQLx](https://docs.rs/sqlx/) docs
+
+4. **Community**: Ask the Rust community at [r/rust](https://reddit.com/r/rust) or [Rust Discord](https://discord.gg/rust-lang)
+
+---
+
 ## Error Handling
 
 The application uses a unified error handling system via `AppError`:
@@ -1147,47 +1818,424 @@ lsof -ti:8000 | xargs kill -9
 
 ## Related Documentation
 
-- [setup.md](./setup.md) — Detailed environment setup
-- [installation.md](./installation.md) — Installation prerequisites
-- [development.md](./development.md) — Development workflow
+- [setup.md](./setup.md) — Detailed environment setup and configuration
+- [installation.md](./installation.md) — Installation prerequisites and requirements
+- [development.md](./development.md) — Development workflow and best practices
+
+---
+
+## Support & Community
+
+### Getting Help
+
+We're here to help! When you encounter an issue:
+
+1. **Check this README** - Most common questions are answered here
+2. **Review the Troubleshooting section** - See [Troubleshooting](#troubleshooting) above
+3. **Search GitHub Issues** - Your question may already be answered
+4. **Ask the Community** - Post in forums or Discord servers
+
+### Resources
+
+**Official Documentation:**
+- [Rust Book](https://doc.rust-lang.org/book/) - Learn Rust fundamentals
+- [Rust Standard Library](https://doc.rust-lang.org/std/)
+- [Rust by Example](https://doc.rust-lang.org/rust-by-example/)
+
+**Framework Documentation:**
+- [Axum Web Framework](https://github.com/tokio-rs/axum) - HTTP request handling
+- [Tokio Async Runtime](https://tokio.rs) - Async/await and multitasking
+- [SQLx Database Toolkit](https://sqlx.rs) - Type-safe SQL queries
+- [PostgreSQL Documentation](https://www.postgresql.org/docs/) - Database reference
+- [Redis Documentation](https://redis.io/documentation) - Caching and sessions
+
+**Community:**
+- [r/rust subreddit](https://reddit.com/r/rust) - Rust programming community
+- [Rust Discord Server](https://discord.gg/rust-lang) - Real-time chat and support
+- [Rust Users Forum](https://users.rust-lang.org/) - Structured discussions
+- [Stack Overflow - rust tag](https://stackoverflow.com/questions/tagged/rust) - Q&A platform
+
+### Reporting Issues
+
+Found a bug? Have a feature request?
+
+1. **Check existing issues** - Avoid duplicates
+2. **Provide details**:
+   - Error message and stack trace
+   - Steps to reproduce
+   - Your environment (OS, Rust version)
+   - `.env` configuration (without secrets)
+
+3. **Create an issue** on GitHub with the information above
+
+---
+
+## Frequently Asked Questions (FAQ)
+
+### General Questions
+
+**Q: Can I use this in production?**
+
+A: Yes! This project is designed as a production-ready scaffold with security best practices. Before going live:
+- [ ] Change `JWT_SECRET` to a strong random value
+- [ ] Update SMTP credentials for emails
+- [ ] Configure CORS origins properly
+- [ ] Enable HTTPS/TLS
+- [ ] Set up monitoring and logging
+- [ ] Run `cargo audit` to check for vulnerabilities
+- [ ] Review security policies and access controls
+
+---
+
+**Q: How long does the first build take?**
+
+A: The first build typically takes **5-15 minutes** depending on your machine. This is normal for Rust projects! Subsequent builds are much faster (usually under 1 minute).
+
+To speed it up:
+- Use a machine with multiple CPU cores
+- Increase RAM available to your system
+- Ensure you're using SSD storage (not spinning disk)
+
+---
+
+**Q: Is Redis required?**
+
+A: No, Redis is **optional** for development. 
+
+- **For development**: Set `REDIS_URL` or leave it blank to disable caching
+- **For production**: Recommended for caching and session management
+
+To disable Redis:
+1. Comment out Redis imports in `src/main.rs`
+2. Remove or comment out `REDIS_URL` from `.env`
+3. Remove redis-related dependencies from `Cargo.toml`
+
+---
+
+### Development Questions
+
+**Q: How do I add a new module/app?**
+
+A: Use the scaffolding tool:
+```bash
+cargo run --bin startapp -- my_new_app
+
+# This creates:
+# src/apps/my_new_app/
+# ├── mod.rs
+# ├── models.rs
+# ├── schemas.rs
+# └── handlers.rs
+```
+
+Then register it in `src/apps/mod.rs`.
+
+---
+
+**Q: How do I modify the database schema?**
+
+A: Use Diesel migrations:
+```bash
+# 1. Create a new migration
+cargo run --bin makemigrations -- migration_name
+
+# 2. Edit the generated migration files
+nano migrations/TIMESTAMP_migration_name/up.sql
+nano migrations/TIMESTAMP_migration_name/down.sql
+
+# 3. Apply the migration
+cargo run --bin migrate
+
+# 4. If needed, rollback
+diesel migration redo --database-url "$DATABASE_URL"
+```
+
+---
+
+**Q: How do I implement role-based access control (RBAC)?**
+
+A: Here's a basic implementation:
+
+1. **Add role column to users table**:
+   ```sql
+   ALTER TABLE users ADD COLUMN role VARCHAR(50) DEFAULT 'user';
+   ```
+
+2. **Create a role enum in models**:
+   ```rust
+   #[derive(Debug, Clone, Copy, PartialEq)]
+   pub enum UserRole {
+       Admin,
+       Moderator,
+       User,
+   }
+   ```
+
+3. **Create authorization middleware**:
+   ```rust
+   pub fn require_admin(user_role: UserRole) -> Result<(), AppError> {
+       if user_role != UserRole::Admin {
+           return Err(AppError::Forbidden("Admin access required".to_string()));
+       }
+       Ok(())
+   }
+   ```
+
+4. **Use in handlers**:
+   ```rust
+   pub async fn admin_endpoint(Extension(user): Extension<User>) -> Result<()> {
+       require_admin(user.role)?;
+       // ... handler logic
+       Ok(())
+   }
+   ```
+
+---
+
+**Q: How do I test my API endpoints?**
+
+A: Several options:
+
+**Using curl** (command line):
+```bash
+curl -X POST http://127.0.0.1:8000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com","password":"pass123"}'
+```
+
+**Using Swagger UI**:
+- Open `http://127.0.0.1:8000/swagger-ui/` in your browser
+- Interactive testing with built-in documentation
+
+**Using Insomnia** (GUI tool):
+- Download from [insomnia.rest](https://insomnia.rest)
+- Import OpenAPI spec from `http://127.0.0.1:8000/openapi.json`
+
+**Using automated tests**:
+```bash
+cargo test
+cargo test -- --nocapture  # See output
+RUST_LOG=debug cargo test  # With logging
+```
+
+---
+
+### Deployment Questions
+
+**Q: How do I deploy this to production?**
+
+A: Basic deployment steps:
+
+1. **Build for release**:
+   ```bash
+   cargo build --release
+   # Binary at: ./target/release/authentication
+   ```
+
+2. **Set up environment**:
+   - Install dependencies on server
+   - Create production `.env` with real credentials
+   - Set up PostgreSQL database
+
+3. **Run migrations**:
+   ```bash
+   cargo run --bin migrate
+   ```
+
+4. **Run the application**:
+   ```bash
+   ./target/release/authentication
+   ```
+
+5. **Set up reverse proxy** (Nginx/Apache):
+   - Forward requests to `127.0.0.1:8000`
+   - Enable TLS/HTTPS
+   - Set up rate limiting
+
+---
+
+**Q: How do I handle secrets in production?**
+
+A: Best practices:
+
+- **Never commit `.env` to git**
+- Use environment variables on your server
+- Use secrets management tools:
+  - AWS Secrets Manager
+  - HashiCorp Vault
+  - DigitalOcean App Platform
+  - Heroku Config Vars
+
+Example with environment variables only:
+```bash
+export DATABASE_URL="postgres://..."
+export JWT_SECRET="very_secure_key"
+./target/release/authentication
+```
+
+---
+
+**Q: Can I dockerize this application?**
+
+A: Yes! Create a `Dockerfile`:
+
+```dockerfile
+FROM rust:1.75 as builder
+WORKDIR /app
+COPY . .
+RUN cargo build --release
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y libpq5 ca-certificates
+COPY --from=builder /app/target/release/authentication /usr/local/bin/
+EXPOSE 8000
+CMD ["authentication"]
+```
+
+Build and run:
+```bash
+docker build -t rustauth .
+docker run -p 8000:8000 -e DATABASE_URL="..." rustauth
+```
+
+---
+
+### Performance & Optimization
+
+**Q: How do I improve API response times?**
+
+A: Optimization strategies:
+
+1. **Enable logging to find bottlenecks**:
+   ```bash
+   RUST_LOG=debug cargo run
+   ```
+
+2. **Add database indexes**:
+   ```sql
+   CREATE INDEX idx_user_email ON users(email);
+   CREATE INDEX idx_posts_user_id ON blog_posts(user_id);
+   ```
+
+3. **Use Redis caching**:
+   - Cache frequently accessed data
+   - Reduce database queries
+
+4. **Connection pooling**:
+   - Adjust `DATABASE_POOL_SIZE` in `.env`
+
+5. **Use release builds**:
+   ```bash
+   cargo build --release
+   ./target/release/authentication
+   ```
+
+---
+
+**Q: How do I profile and optimize performance?**
+
+A: Tools and techniques:
+
+```bash
+# Build with profiling support
+cargo flamegraph
+
+# Or use perf on Linux
+sudo perf record ./target/release/authentication
+sudo perf report
+
+# Check for slow SQL queries
+RUST_LOG=sqlx=debug cargo run
+```
+
+---
+
+### Troubleshooting Questions
+
+**Q: I get "error: could not compile authentication"**
+
+A: Try:
+1. Update Rust: `rustup update`
+2. Clean build: `cargo clean && cargo build`
+3. Check Rust version: `rustc --version` (should be 1.70.0+)
+
+---
+
+**Q: My changes aren't showing up when I run the app**
+
+A: Solution:
+1. Stop the running server (Ctrl+C)
+2. Rebuild: `cargo build`
+3. Run again: `cargo run`
+
+For automatic rebuilds during development:
+```bash
+cargo install cargo-watch
+cargo watch -x run
+```
+
+---
+
+**Q: Permission denied when accessing PostgreSQL**
+
+A: PostgreSQL authentication issue. Try:
+```bash
+# Reset to default credentials
+sudo -u postgres psql
+
+# In psql prompt:
+postgres=# ALTER USER postgres WITH PASSWORD 'postgres';
+postgres=# \q
+```
+
+---
+
+### Contributing Questions
+
+**Q: How do I contribute to this project?**
+
+A: Steps for contributors:
+
+1. **Fork the repository** on GitHub
+2. **Create a feature branch**: `git checkout -b feature/your-feature`
+3. **Make changes** and test thoroughly
+4. **Run quality checks**:
+   ```bash
+   cargo fmt      # Format code
+   cargo clippy   # Lint checks
+   cargo test     # Run tests
+   cargo audit    # Security audit
+   ```
+5. **Commit with descriptive message**: `git commit -m 'feat: add new feature'`
+6. **Push to your fork**: `git push origin feature/your-feature`
+7. **Create a Pull Request** with description and screenshots
 
 ---
 
 ## License
 
-This project is licensed under the MIT License. See LICENSE file for details.
+This project is licensed under the **MIT License**. See the [LICENSE](./LICENSE) file for complete details.
+
+### MIT License Summary
+- ✅ **Allowed**: Commercial use, modification, distribution, private use
+- ❌ **Prohibited**: Trademark use, liability
+- ⚠️ **Required**: License and copyright notice
 
 ---
 
-## Support & Resources
-
-- **Rust Documentation**: https://doc.rust-lang.org/
-- **Axum Framework**: https://github.com/tokio-rs/axum
-- **Tokio Runtime**: https://tokio.rs
-- **SQLx Documentation**: https://sqlx.rs
-- **PostgreSQL Docs**: https://www.postgresql.org/docs/
-
----
-
-## FAQ
-
-**Q: Can I use this in production?**  
-A: Yes, it's designed as a production-ready scaffold. Ensure you've completed the security checklist.
-
-**Q: How do I add a new module?**  
-A: Use `cargo run --bin startapp -- module_name` or manually create the module structure.
-
-**Q: Is Redis required?**  
-A: No, it's optional. Remove Redis dependencies from `Cargo.toml` if not needed.
-
-**Q: How do I implement role-based access control?**  
-A: Add a `role` column to users table, check role in handlers, create permission middleware.
-
-**Q: Can I modify the database schema?**  
-A: Yes, create a new migration, edit `up.sql` and `down.sql`, then run `cargo run --bin migrate`.
-
----
-
-**Last Updated**: April 10, 2026  
+**Project Status**: Active Development  
+**Last Updated**: April 13, 2026  
 **Maintained By**: Development Team  
-**Status**: Active Development
+**Rust Version**: 1.70.0+  
+**Current Build**: stable
+
+---
+
+## What's Next?
+
+- Explore the [Swagger UI](http://127.0.0.1:8000/swagger-ui/) for interactive API testing
+- Read [development.md](./development.md) for advanced development practices
+- Check [setup.md](./setup.md) for detailed configuration options
+- Review code examples in `src/apps/` for reference implementations
+
+Happy coding! 🚀

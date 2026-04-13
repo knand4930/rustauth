@@ -23,6 +23,51 @@ use sqlx::{Column, PgPool, Row, TypeInfo, ValueRef};
 use std::env;
 use std::io::{self, BufRead, Write};
 
+const RST: &str = "\x1b[0m";
+const BLD: &str = "\x1b[1m";
+
+fn print_usage() {
+    println!("Usage:");
+    println!("  {BLD}cargo shell{RST}                          start the interactive SQL shell");
+    println!("  {BLD}cargo shell --command \"SELECT 1\"{RST}   run one SQL statement and exit");
+    println!(
+        "  {BLD}cargo shell --command \"\\\\tables\"{RST}   run one built-in shell command and exit"
+    );
+    println!();
+    println!("Built-ins: \\tables  \\schema <name>  \\d <schema.table>  \\indexes <schema.table>");
+    println!("           \\migrations  \\count <schema.table>  \\q");
+    println!();
+}
+
+fn validate_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+}
+
+fn parse_table_reference(full_table: &str) -> Result<(String, String)> {
+    let trimmed = full_table.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("A table name is required. Use schema.table or table.");
+    }
+
+    let parts: Vec<&str> = trimmed.split('.').collect();
+    let (schema, table) = match parts.as_slice() {
+        [table] => ("public", *table),
+        [schema, table] => (*schema, *table),
+        _ => anyhow::bail!("Invalid table reference '{trimmed}'. Use schema.table or table."),
+    };
+
+    if !validate_identifier(schema) || !validate_identifier(table) {
+        anyhow::bail!(
+            "Invalid table reference '{trimmed}'. Use only letters, digits, underscores, and one optional schema separator."
+        );
+    }
+
+    Ok((schema.to_string(), table.to_string()))
+}
+
 // ── Cell extraction ────────────────────────────────────────────────────────────
 // Try common postgres types in order; fall back to "<type>" label.
 
@@ -175,12 +220,7 @@ async fn cmd_schema(pool: &PgPool, schema: &str) -> Result<()> {
 }
 
 async fn cmd_describe(pool: &PgPool, full_table: &str) -> Result<()> {
-    let parts: Vec<&str> = full_table.splitn(2, '.').collect();
-    let (schema, table) = if parts.len() == 2 {
-        (parts[0], parts[1])
-    } else {
-        ("public", parts[0])
-    };
+    let (schema, table) = parse_table_reference(full_table)?;
 
     let rows = sqlx::query(
         "SELECT column_name, data_type, udt_name, is_nullable, column_default
@@ -188,8 +228,8 @@ async fn cmd_describe(pool: &PgPool, full_table: &str) -> Result<()> {
          WHERE table_schema = $1 AND table_name = $2
          ORDER BY ordinal_position",
     )
-    .bind(schema)
-    .bind(table)
+    .bind(&schema)
+    .bind(&table)
     .fetch_all(pool)
     .await?;
 
@@ -229,20 +269,15 @@ async fn cmd_describe(pool: &PgPool, full_table: &str) -> Result<()> {
 }
 
 async fn cmd_indexes(pool: &PgPool, full_table: &str) -> Result<()> {
-    let parts: Vec<&str> = full_table.splitn(2, '.').collect();
-    let (schema, table) = if parts.len() == 2 {
-        (parts[0], parts[1])
-    } else {
-        ("public", parts[0])
-    };
+    let (schema, table) = parse_table_reference(full_table)?;
 
     let rows = sqlx::query(
         "SELECT indexname, indexdef FROM pg_indexes
          WHERE schemaname = $1 AND tablename = $2
          ORDER BY indexname",
     )
-    .bind(schema)
-    .bind(table)
+    .bind(&schema)
+    .bind(&table)
     .fetch_all(pool)
     .await?;
 
@@ -296,14 +331,39 @@ async fn cmd_migrations(pool: &PgPool) -> Result<()> {
 }
 
 async fn cmd_count(pool: &PgPool, full_table: &str) -> Result<()> {
-    let sql = format!("SELECT COUNT(*) AS count FROM {full_table}");
+    let (schema, table) = parse_table_reference(full_table)?;
+    let qualified_table = format!("\"{schema}\".\"{table}\"");
+    let sql = format!("SELECT COUNT(*) AS count FROM {qualified_table}");
     let row = sqlx::query(&sql)
         .fetch_one(pool)
         .await
-        .with_context(|| format!("Cannot query {full_table}"))?;
+        .with_context(|| format!("Cannot query {qualified_table}"))?;
     let count: i64 = row.get("count");
-    println!("{full_table}: {count} rows");
+    println!("{qualified_table}: {count} rows");
     Ok(())
+}
+
+async fn run_shell_command(pool: &PgPool, command: &str) -> Result<()> {
+    let trimmed = command.trim();
+
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+
+    if trimmed.starts_with('\\') {
+        let parts: Vec<&str> = trimmed.splitn(2, ' ').collect();
+        match parts[0] {
+            "\\tables" => cmd_tables(pool).await,
+            "\\schema" => cmd_schema(pool, parts.get(1).copied().unwrap_or("public")).await,
+            "\\d" => cmd_describe(pool, parts.get(1).copied().unwrap_or("")).await,
+            "\\indexes" => cmd_indexes(pool, parts.get(1).copied().unwrap_or("")).await,
+            "\\migrations" => cmd_migrations(pool).await,
+            "\\count" => cmd_count(pool, parts.get(1).copied().unwrap_or("")).await,
+            other => anyhow::bail!("Unknown command: {other}"),
+        }
+    } else {
+        exec_sql(pool, trimmed.trim_end_matches(';').trim()).await
+    }
 }
 
 // ── Generic SQL executor ───────────────────────────────────────────────────────
@@ -360,12 +420,32 @@ async fn exec_sql(pool: &PgPool, sql: &str) -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let args: Vec<String> = env::args().skip(1).collect();
+    let one_shot_command = match args.as_slice() {
+        [] => None,
+        [flag] if matches!(flag.as_str(), "-h" | "--help") => {
+            print_usage();
+            return Ok(());
+        }
+        [flag, command] if matches!(flag.as_str(), "-c" | "--command") => Some(command.clone()),
+        _ => {
+            eprintln!("Invalid shell arguments.\n");
+            print_usage();
+            std::process::exit(1);
+        }
+    };
+
     dotenv().ok();
 
     let database_url = env::var("DATABASE_URL").context("DATABASE_URL not set in .env")?;
     let pool = PgPool::connect(&database_url)
         .await
         .context("Cannot connect to database")?;
+
+    if let Some(command) = one_shot_command {
+        run_shell_command(&pool, &command).await?;
+        return Ok(());
+    }
 
     let db_name = database_url.split('/').last().unwrap_or("db");
 
@@ -414,20 +494,7 @@ async fn main() -> Result<()> {
 
         // Built-in backslash commands (only on their own line)
         if trimmed.starts_with('\\') {
-            let parts: Vec<&str> = trimmed.splitn(2, ' ').collect();
-            let result = match parts[0] {
-                "\\tables" => cmd_tables(&pool).await,
-                "\\schema" => cmd_schema(&pool, parts.get(1).copied().unwrap_or("public")).await,
-                "\\d" => cmd_describe(&pool, parts.get(1).copied().unwrap_or("")).await,
-                "\\indexes" => cmd_indexes(&pool, parts.get(1).copied().unwrap_or("")).await,
-                "\\migrations" => cmd_migrations(&pool).await,
-                "\\count" => cmd_count(&pool, parts.get(1).copied().unwrap_or("")).await,
-                other => {
-                    println!("Unknown command: {other}  (try \\q to quit)");
-                    Ok(())
-                }
-            };
-            if let Err(e) = result {
+            if let Err(e) = run_shell_command(&pool, trimmed).await {
                 eprintln!("Error: {e:#}");
             }
             buffer.clear();
@@ -450,4 +517,21 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_table_reference;
+
+    #[test]
+    fn parses_schema_qualified_table_names() {
+        let parsed = parse_table_reference("user.users").expect("valid table ref");
+        assert_eq!(parsed, ("user".to_string(), "users".to_string()));
+    }
+
+    #[test]
+    fn rejects_invalid_table_references() {
+        assert!(parse_table_reference("user.users.extra").is_err());
+        assert!(parse_table_reference("user;drop").is_err());
+    }
 }

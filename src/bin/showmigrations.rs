@@ -20,6 +20,12 @@ const DIM: &str = "\x1b[2m";
 const GRN: &str = "\x1b[32m";
 const YLW: &str = "\x1b[33m";
 
+fn print_usage() {
+    println!("Usage:");
+    println!("  {BLD}cargo showmigrations{RST}             list migrations with applied status");
+    println!();
+}
+
 fn migrations_dir() -> PathBuf {
     PathBuf::from(MANIFEST_DIR).join("migrations")
 }
@@ -53,25 +59,72 @@ fn migration_names() -> Result<Vec<String>> {
         .collect())
 }
 
+fn is_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+}
+
 fn get_migration_modules(sql: &str) -> Vec<String> {
     let mut modules = std::collections::BTreeSet::new();
+
     for line in sql.lines() {
-        let line = line.to_uppercase();
-        if let Some(idx) = line.find(" TABLE ") {
-            let rest = &line[idx + 7..];
-            if let Some(dot) = rest.find('.') {
-                let schema = rest[..dot].trim().to_lowercase();
-                if schema != "public" && schema != "if" && schema != "exists" {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with("--") {
+            continue;
+        }
+
+        let lower = trimmed.to_lowercase();
+        let tokens: Vec<&str> = lower.split_whitespace().collect();
+        if tokens.len() >= 3 && tokens[0] == "create" && tokens[1] == "schema" {
+            let schema = match tokens.as_slice() {
+                ["create", "schema", "if", "not", "exists", schema, ..] => *schema,
+                ["create", "schema", schema, ..] => *schema,
+                _ => "",
+            }
+            .trim_matches(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_');
+
+            if is_identifier(schema) && schema != "public" {
+                modules.insert(schema.to_string());
+            }
+        }
+
+        for token in trimmed.split_whitespace() {
+            let cleaned = token
+                .trim_matches(|ch: char| {
+                    !ch.is_ascii_alphanumeric() && ch != '_' && ch != '.' && ch != '"'
+                })
+                .trim_matches('"');
+
+            if let Some((schema, _)) = cleaned.split_once('.') {
+                let schema = schema.trim_matches('"').to_lowercase();
+                if is_identifier(&schema) && schema != "public" {
                     modules.insert(schema);
                 }
             }
         }
     }
+
     modules.into_iter().collect()
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match args.as_slice() {
+        [] => {}
+        [flag] if matches!(flag.as_str(), "-h" | "--help") => {
+            print_usage();
+            return Ok(());
+        }
+        _ => {
+            eprintln!("{YLW}showmigrations does not accept extra arguments.{RST}\n");
+            print_usage();
+            std::process::exit(1);
+        }
+    }
+
     dotenv().ok();
 
     let database_url = env::var("DATABASE_URL").context("DATABASE_URL not set in .env")?;
@@ -116,44 +169,32 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let mut by_module: std::collections::BTreeMap<String, Vec<&String>> =
-        std::collections::BTreeMap::new();
+    println!(
+        "  {BLD}{:<4} {:<48} {}{RST}",
+        "Stat", "Migration", "Modules"
+    );
+    println!("  {DIM}{}{RST}", "─".repeat(90));
+
+    let mut applied_count = 0usize;
     for name in &names {
         let sql =
             fs::read_to_string(migrations_dir().join(name).join("up.sql")).unwrap_or_default();
         let modules = get_migration_modules(&sql);
-        if modules.is_empty() {
-            by_module
-                .entry("global".to_string())
-                .or_default()
-                .push(name);
+        let module_label = if modules.is_empty() {
+            "global".to_string()
         } else {
-            for md in modules {
-                by_module.entry(md).or_default().push(name);
-            }
-        }
-    }
+            modules.join(", ")
+        };
 
-    let mut applied_count = 0usize;
-    for (module, module_names) in by_module {
-        println!("{BLD}{}{RST}", module);
-        for name in module_names {
-            if let Some(ts) = ts_map.get(name) {
-                if !module.is_empty() { // prevent double counting if multiple modules touch same name? actually applied_count isn't fully accurate if duped, but we'll collect a unique set.
-                }
-                let ts_str = ts.format("%Y-%m-%d %H:%M UTC").to_string();
-                println!("  {GRN}[X]{RST}  {}  {DIM}applied {}{RST}", name, ts_str);
-            } else {
-                println!("  {YLW}[ ]{RST}  {}", name);
-            }
-        }
-        println!();
-    }
-
-    // accurate count
-    for name in &names {
-        if ts_map.contains_key(name) {
+        if let Some(ts) = ts_map.get(name) {
             applied_count += 1;
+            let ts_str = ts.format("%Y-%m-%d %H:%M UTC").to_string();
+            println!(
+                "  {GRN}[X]{RST}  {:<48} {DIM}{}  (applied {}){RST}",
+                name, module_label, ts_str
+            );
+        } else {
+            println!("  {YLW}[ ]{RST}  {:<48} {}", name, module_label);
         }
     }
 
@@ -172,4 +213,34 @@ async fn main() -> Result<()> {
     println!();
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::get_migration_modules;
+
+    #[test]
+    fn parses_schema_and_table_modules_without_if_not_exists_noise() {
+        let sql = r#"
+            CREATE SCHEMA IF NOT EXISTS blogs;
+            CREATE TABLE IF NOT EXISTS blogs.blog_posts (
+                id UUID PRIMARY KEY
+            );
+        "#;
+
+        assert_eq!(get_migration_modules(sql), vec!["blogs".to_string()]);
+    }
+
+    #[test]
+    fn collects_multiple_distinct_modules_once_each() {
+        let sql = r#"
+            CREATE TABLE user.users (id UUID PRIMARY KEY);
+            ALTER TABLE blogs.blog_posts ADD COLUMN author_id UUID REFERENCES user.users(id);
+        "#;
+
+        assert_eq!(
+            get_migration_modules(sql),
+            vec!["blogs".to_string(), "user".to_string()]
+        );
+    }
 }

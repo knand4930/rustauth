@@ -1,7 +1,7 @@
 [alias]
 # ── App scaffolding ───────────────────────────────────────────────────────────
 #
-#   cargo startapp <name>                   scaffold a new app + wire everything
+#   cargo startapp <name>                   scaffold or repair app-local files
 #   cargo startapp <name> --schema <pg>     same with a custom postgres schema name
 
 startapp       = ["run", "--bin", "startapp",       "--"]
@@ -26,9 +26,19 @@ showmigrations = ["run", "--bin", "showmigrations", "--"]
 # ── Database shells ───────────────────────────────────────────────────────────
 #
 #   cargo dbshell                           native psql session (full tab-completion)
+#   cargo dbshell -- -c "SELECT 1"          run a one-shot psql command
 #   cargo shell                             interactive SQL REPL with table output
+#   cargo shell --command "\\tables"        run one shell command and exit
 #                                           built-ins: \tables  \d <table>  \schema
 #                                                      \count   \indexes   \migrations
 
 dbshell        = ["run", "--bin", "dbshell",        "--"]
 shell          = ["run", "--bin", "shell",          "--"]
+
+# ── Tests ──────────────────────────────────────────────────────────────────────
+#
+#   cargo tests                             run the project test suite
+#   cargo tests auth_flow                   pass through a test filter
+#   cargo tests -- --nocapture             forward extra rust test flags
+
+tests          = ["run", "--bin", "tests",          "--"]
