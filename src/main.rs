@@ -1,16 +1,5 @@
-mod admin;
-mod apps;
-mod config;
-mod db;
-mod error;
-mod model;
-mod response;
-mod state;
-
-use admin::initialize_adminx;
 use axum::http::{Method, header};
-use config::AppConfig;
-use state::AppState;
+use rustauth::{admin, apps, config::AppConfig, db, health_check, state::AppState};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -38,8 +27,8 @@ async fn main() {
     let pool = db::init_pool(&config.database_url).await;
     tracing::info!("Database connected");
 
-    let addr = format!("{}:{}", config.server_host, config.server_port);
-    let admin_panel = initialize_adminx();
+    let address = format!("{}:{}", config.server_host, config.server_port);
+    let admin_panel = admin::initialize_adminx();
     tracing::info!(
         "AdminX initialized with {} apps and {} resources",
         admin_panel.app_count,
@@ -67,19 +56,9 @@ async fn main() {
         .layer(cors)
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
-    tracing::info!("Server running on http://{addr}");
-    tracing::info!("Swagger UI at http://{addr}/swagger-ui");
+    let listener = tokio::net::TcpListener::bind(&address).await.unwrap();
+    tracing::info!("Server running on http://{address}");
+    tracing::info!("Swagger UI at http://{address}/swagger-ui");
 
     axum::serve(listener, app).await.unwrap();
-}
-
-#[utoipa::path(
-    get,
-    path = "/api/v1/health",
-    responses((status = 200, description = "Server is running")),
-    tag = "System"
-)]
-pub(crate) async fn health_check() -> &'static str {
-    "OK"
 }

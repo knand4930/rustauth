@@ -7,39 +7,36 @@ A production-ready **Rust authentication service** with user management, blog fu
 - [Overview](#overview)
 - [Key Features](#key-features)
 - [Technology Stack](#technology-stack)
-- [Project Architecture](#project-architecture)
-- [Prerequisites](#prerequisites)
-- [Installation](#installation)
-  - [Complete Setup Guide for New Users](#complete-setup-guide-for-new-users)
-  - [TL;DR (Quick Setup)](#tldr-quick-setup)
-- [Setup & Configuration](#setup--configuration)
 - [Quick Start](#quick-start)
-- [API Documentation](#api-documentation)
-- [Project Commands](#project-commands)
-- [Database Management](#database-management)
-- [Development Workflow](#development-workflow)
-- [Troubleshooting](#troubleshooting)
-- [Error Handling](#error-handling)
 - [Project Structure](#project-structure)
+- [Core Modules](#core-modules)
+- [API Endpoints](#api-endpoints)
+- [Database Models](#database-models)
+- [Configuration](#configuration)
+- [CLI Commands](#cli-commands)
+- [Development](#development)
+- [Deployment](#deployment)
 - [Contributing](#contributing)
-- [Support & Community](#support--community)
 - [License](#license)
 
 ---
 
 ## Overview
 
-**RustAuth** is a fully-featured authentication and content management API built with **Rust**, designed to demonstrate modern backend development practices. It provides:
+**RustAuth** is a fully-featured authentication and content management API demonstrating modern backend development practices in Rust. It provides enterprise-grade security, scalability, and developer experience.
+
+### Core Capabilities
 
 - **JWT-based authentication** with secure password hashing (Argon2)
-- **User management** with CRUD operations
-- **Blog platform** with posts and comments system
+- **User management** with CRUD operations and profiles
+- **Blog platform** with posts and comments
 - **Email support** for notifications and verification
 - **Redis integration** for caching and sessions
 - **Comprehensive API documentation** via Swagger UI
 - **CLI tooling** for database management and scaffolding
-
-This project serves as both a **production-ready service** and a **learning resource** for Rust backend developers.
+- **Database migrations** with automatic change detection
+- **RBAC** (Role-Based Access Control) ready
+- **Admin panel** with AdminX framework
 
 ---
 

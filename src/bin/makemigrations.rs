@@ -45,16 +45,29 @@ const MAG: &str = "\x1b[35m";
 fn print_usage() {
     println!("Usage:");
     println!(
-        "  {BLD}cargo makemigrations{RST}                 generate a migration with the default label"
+        "  {BLD}cargo makemigrations{RST}                    generate a migration (label: 'auto')"
     );
     println!(
-        "  {BLD}cargo makemigrations <label>{RST}         generate a migration with a custom label"
+        "  {BLD}cargo makemigrations <label>{RST}            generate a migration with a custom label"
+    );
+    println!(
+        "  {BLD}cargo makemigrations --check{RST}            exit 1 if model changes exist (no files written)"
+    );
+    println!(
+        "  {BLD}cargo makemigrations --dry-run{RST}          print SQL to stdout without writing files"
+    );
+    println!(
+        "  {BLD}cargo makemigrations --dry-run <label>{RST}  dry-run with a custom label"
+    );
+    println!(
+        "  {BLD}cargo makemigrations --empty [label]{RST}    create an empty migration for hand-written SQL"
     );
     println!();
     println!("Notes:");
     println!(
         "  Labels are normalized to lowercase and may contain letters, digits, and underscores."
     );
+    println!("  Removed columns and tables are included in the migration as DESTRUCTIVE operations.");
     println!("  Example: {BLD}cargo makemigrations add_user_profile{RST}");
     println!();
 }
@@ -281,6 +294,306 @@ fn pluralize(s: &str) -> String {
     }
 }
 
+/// Quote a PostgreSQL identifier if it's a reserved keyword
+fn quote_identifier(name: &str) -> String {
+    // PostgreSQL reserved keywords that need quoting
+    const RESERVED_KEYWORDS: &[&str] = &[
+        "user",
+        "order",
+        "group",
+        "select",
+        "from",
+        "where",
+        "table",
+        "index",
+        "key",
+        "primary",
+        "foreign",
+        "reference",
+        "constraint",
+        "check",
+        "default",
+        "null",
+        "not",
+        "and",
+        "or",
+        "in",
+        "is",
+        "like",
+        "between",
+        "exists",
+        "case",
+        "when",
+        "then",
+        "else",
+        "end",
+        "union",
+        "intersect",
+        "except",
+        "all",
+        "any",
+        "some",
+        "as",
+        "on",
+        "for",
+        "into",
+        "using",
+        "join",
+        "left",
+        "right",
+        "inner",
+        "outer",
+        "cross",
+        "natural",
+        "full",
+        "values",
+        "insert",
+        "update",
+        "delete",
+        "create",
+        "drop",
+        "alter",
+        "schema",
+        "database",
+        "role",
+        "grant",
+        "revoke",
+        "public",
+        "with",
+        "without",
+        "time",
+        "timestamp",
+        "interval",
+        "array",
+        "row",
+        "type",
+        "domain",
+        "sequence",
+        "function",
+        "returns",
+        "language",
+        "volatile",
+        "stable",
+        "immutable",
+        "strict",
+        "security",
+        "definer",
+        "invoker",
+        "temporary",
+        "temp",
+        "unlogged",
+        "if",
+        "of",
+        "offset",
+        "limit",
+        "fetch",
+        "only",
+        "first",
+        "last",
+        "next",
+        "prior",
+        "absolute",
+        "relative",
+        "forward",
+        "backward",
+        "scroll",
+        "no",
+        "scroll",
+        "cursor",
+        "close",
+        "open",
+        "declare",
+        "prepare",
+        "execute",
+        "deallocate",
+        "show",
+        "set",
+        "reset",
+        "begin",
+        "commit",
+        "rollback",
+        "abort",
+        "work",
+        "transaction",
+        "savepoint",
+        "release",
+        "lock",
+        "unlock",
+        "notify",
+        "listen",
+        "unlisten",
+        "current",
+        "local",
+        "global",
+        "session",
+        "temporary",
+        "serializable",
+        "read",
+        "write",
+        "committed",
+        "uncommitted",
+        "isolation",
+        "level",
+        "immediate",
+        "deferred",
+        "exclusive",
+        "share",
+        "row",
+        "access",
+        "mode",
+        "conflict",
+        "nothing",
+        "returning",
+        "window",
+        "over",
+        "partition",
+        "range",
+        "rows",
+        "groups",
+        "exclude",
+        "ties",
+        "others",
+        "following",
+        "preceding",
+        "current_row",
+        "unbounded",
+        "filter",
+        "within",
+        "grouping",
+        "sets",
+        "cube",
+        "rollup",
+        "tables",
+        "tablesample",
+        "bernoulli",
+        "system",
+        "repeatable",
+        "seed",
+        "xml",
+        "xmlattributes",
+        "xmlconcat",
+        "xmlelement",
+        "xmlexists",
+        "xmlforest",
+        "xmlnamespaces",
+        "xmlparse",
+        "xmlpi",
+        "xmlroot",
+        "xmlserialize",
+        "xmltable",
+        "column",
+        "passing",
+        "ordinary",
+        "following",
+        "preceding",
+        "document",
+        "content",
+        "top_level",
+        "wellformed",
+        "xmlns",
+        "empty",
+        "nil",
+        "true",
+        "false",
+        "unknown",
+        "output",
+        "input",
+        "maxvalue",
+        "minvalue",
+        "cycle",
+        "owned",
+        "by",
+        "none",
+        "dependency",
+        "dependencies",
+        "extensions",
+        "extension",
+        "schema",
+        "data",
+        "access",
+        "method",
+        "operator",
+        "class",
+        "family",
+        "aggregate",
+        "cast",
+        "conversion",
+        "domain",
+        "large",
+        "object",
+        "operator",
+        "procedure",
+        "routine",
+        "statistics",
+        "text",
+        "search",
+        "configuration",
+        "dictionary",
+        "template",
+        "parser",
+        "mapping",
+        "rule",
+        "trigger",
+        "event",
+        "publication",
+        "subscription",
+        "replication",
+        "slot",
+        "origin",
+        "only",
+        "also",
+        "instead",
+        "of",
+        "each",
+        "statement",
+        "before",
+        "after",
+        "instead",
+        "of",
+        "deferrable",
+        "initially",
+        "deferred",
+        "immediate",
+        "validated",
+        "not",
+        "valid",
+        "enable",
+        "disable",
+        "replica",
+        "always",
+        "identity",
+        "generated",
+        "stored",
+        "virtual",
+        "sequence",
+        "owned",
+        "by",
+        "none",
+        "restart",
+        "continue",
+        "cache",
+        "increment",
+        "minvalue",
+        "maxvalue",
+        "start",
+        "no",
+        "minvalue",
+        "no",
+        "maxvalue",
+    ];
+
+    if RESERVED_KEYWORDS.contains(&name.to_lowercase().as_str()) {
+        format!("\"{name}\"")
+    } else {
+        name.to_string()
+    }
+}
+
+/// Quote a fully-qualified table reference (schema.table)
+fn quote_qualified_table(schema: &str, table: &str) -> String {
+    format!("{}.{}", quote_identifier(schema), quote_identifier(table))
+}
+
 fn struct_to_table(name: &str) -> String {
     pluralize(&camel_to_snake(name))
 }
@@ -295,6 +608,14 @@ fn default_index_name(table: &str, columns: &[String]) -> String {
 
 fn default_unique_name(table: &str, columns: &[String]) -> String {
     format!("uq_{}_{}", table, columns.join("_"))
+}
+
+fn quote_column_list(columns: &[String]) -> String {
+    columns
+        .iter()
+        .map(|column| quote_identifier(column))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 // ── Directive parsing ─────────────────────────────────────────────────────────
@@ -1020,7 +1341,7 @@ fn effective_default(field: &ParsedField) -> Option<String> {
 }
 
 fn col_sql(table: &ParsedTable, field: &ParsedField, reg: &HashMap<String, String>) -> String {
-    let mut parts = vec![field.name.clone(), field.sql_type.clone()];
+    let mut parts = vec![quote_identifier(&field.name), field.sql_type.clone()];
 
     if field.is_pk {
         parts.push("PRIMARY KEY".to_string());
@@ -1032,7 +1353,20 @@ fn col_sql(table: &ParsedTable, field: &ParsedField, reg: &HashMap<String, Strin
         parts.push(format!("DEFAULT {default}"));
     }
     if let Some(reference_table) = resolve_fk(table, field, reg) {
-        parts.push(format!("REFERENCES {reference_table}(id)"));
+        // Quote the reference table if it contains a schema
+        let quoted_ref = if let Some((schema, table_name)) = reference_table.split_once('.') {
+            format!(
+                "{}.{}",
+                quote_identifier(schema),
+                quote_identifier(table_name)
+            )
+        } else {
+            reference_table
+        };
+        parts.push(format!(
+            "REFERENCES {quoted_ref}({})",
+            quote_identifier("id")
+        ));
     }
 
     format!("    {}", parts.join(" "))
@@ -1051,37 +1385,51 @@ fn create_table_sql(
         .join(",\n");
 
     let if_not_exists = if if_not_exists { " IF NOT EXISTS" } else { "" };
-    format!(
-        "CREATE TABLE{if_not_exists} {}.{} (\n{columns}\n);",
-        table.schema, table.table
-    )
+    let qualified = quote_qualified_table(&table.schema, &table.table);
+    format!("CREATE TABLE{if_not_exists} {qualified} (\n{columns}\n);")
 }
 
 fn add_unique_constraint_sql(table_key: &str, constraint: &NamedColumns) -> String {
+    let quoted_key = quote_qualified_table_from_key(table_key);
     format!(
-        "DO $$ BEGIN ALTER TABLE {table_key} ADD CONSTRAINT {} UNIQUE ({}); EXCEPTION WHEN duplicate_object THEN NULL; END $$;",
-        constraint.name,
-        constraint.columns.join(", ")
+        "DO $$ BEGIN ALTER TABLE {quoted_key} ADD CONSTRAINT {} UNIQUE ({}); EXCEPTION WHEN duplicate_object THEN NULL; END $$;",
+        quote_identifier(&constraint.name),
+        quote_column_list(&constraint.columns)
     )
 }
 
 fn drop_unique_constraint_sql(table_key: &str, constraint: &NamedColumns) -> String {
+    let quoted_key = quote_qualified_table_from_key(table_key);
     format!(
-        "ALTER TABLE {table_key} DROP CONSTRAINT IF EXISTS {};",
-        constraint.name
+        "ALTER TABLE {quoted_key} DROP CONSTRAINT IF EXISTS {};",
+        quote_identifier(&constraint.name)
     )
 }
 
 fn add_index_sql(table_key: &str, index: &NamedColumns) -> String {
+    let quoted_key = quote_qualified_table_from_key(table_key);
     format!(
-        "CREATE INDEX IF NOT EXISTS {} ON {table_key} ({});",
-        index.name,
-        index.columns.join(", ")
+        "CREATE INDEX IF NOT EXISTS {} ON {quoted_key} ({});",
+        quote_identifier(&index.name),
+        quote_column_list(&index.columns)
     )
 }
 
 fn drop_index_sql(schema: &str, index: &NamedColumns) -> String {
-    format!("DROP INDEX IF EXISTS {schema}.{};", index.name)
+    let quoted_schema = quote_identifier(schema);
+    format!(
+        "DROP INDEX IF EXISTS {quoted_schema}.{};",
+        quote_identifier(&index.name)
+    )
+}
+
+/// Helper to quote a table key (schema.table format)
+fn quote_qualified_table_from_key(table_key: &str) -> String {
+    if let Some((schema, table)) = table_key.split_once('.') {
+        quote_qualified_table(schema, table)
+    } else {
+        table_key.to_string()
+    }
 }
 
 // ── Diff engine ───────────────────────────────────────────────────────────────
@@ -1104,7 +1452,8 @@ fn compute_diff(tables: &[ParsedTable], prev: &SchemaState, reg: &HashMap<String
 
     let schemas: BTreeSet<&str> = tables.iter().map(|table| table.schema.as_str()).collect();
     for schema in &schemas {
-        up.push(format!("CREATE SCHEMA IF NOT EXISTS {schema};"));
+        let quoted_schema = quote_identifier(schema);
+        up.push(format!("CREATE SCHEMA IF NOT EXISTS {quoted_schema};"));
     }
 
     for table in tables {
@@ -1155,10 +1504,8 @@ fn compute_diff(tables: &[ParsedTable], prev: &SchemaState, reg: &HashMap<String
                     down.push(drop_index_sql(&table.schema, index));
                 }
 
-                down.push(format!(
-                    "DROP TABLE IF EXISTS {}.{} CASCADE;",
-                    table.schema, table.table
-                ));
+                let qualified = quote_qualified_table(&table.schema, &table.table);
+                down.push(format!("DROP TABLE IF EXISTS {qualified} CASCADE;"));
             }
             Some(prev_table) => {
                 let prev_columns: HashMap<&str, &ColState> = prev_table
@@ -1182,13 +1529,14 @@ fn compute_diff(tables: &[ParsedTable], prev: &SchemaState, reg: &HashMap<String
                                 "    {GRN}+{RST} {BLD}{:<22}{RST} {}  {DIM}(new column){RST}",
                                 field.name, field.sql_type
                             ));
+                            let quoted_key = quote_qualified_table_from_key(&key);
                             up.push(format!(
-                                "ALTER TABLE {key} ADD COLUMN {};",
+                                "ALTER TABLE {quoted_key} ADD COLUMN {};",
                                 col_sql(table, field, reg).trim()
                             ));
                             down.push(format!(
-                                "ALTER TABLE {key} DROP COLUMN IF EXISTS {};",
-                                field.name
+                                "ALTER TABLE {quoted_key} DROP COLUMN IF EXISTS {};",
+                                quote_identifier(&field.name)
                             ));
                         }
                         Some(previous) => {
@@ -1198,9 +1546,10 @@ fn compute_diff(tables: &[ParsedTable], prev: &SchemaState, reg: &HashMap<String
                                     "    {YLW}~{RST} {BLD}{:<22}{RST} {} → {}  {YLW}type change{RST}",
                                     field.name, previous.sql_type, field.sql_type
                                 ));
+                                let quoted_key = quote_qualified_table_from_key(&key);
                                 up.push(format!(
-                                    "ALTER TABLE {key} ALTER COLUMN {column} TYPE {sql_type} USING {column}::{sql_type};",
-                                    column = field.name,
+                                    "ALTER TABLE {quoted_key} ALTER COLUMN {column} TYPE {sql_type} USING {column}::{sql_type};",
+                                    column = quote_identifier(&field.name),
                                     sql_type = field.sql_type
                                 ));
                             }
@@ -1217,14 +1566,15 @@ fn compute_diff(tables: &[ParsedTable], prev: &SchemaState, reg: &HashMap<String
                                     },
                                     if field.nullable { "NULL" } else { "NOT NULL" }
                                 ));
+                                let quoted_key = quote_qualified_table_from_key(&key);
                                 up.push(format!(
-                                    "ALTER TABLE {key} ALTER COLUMN {column} {};",
+                                    "ALTER TABLE {quoted_key} ALTER COLUMN {column} {};",
                                     if field.nullable {
-                                        format!("DROP NOT NULL",)
+                                        "DROP NOT NULL"
                                     } else {
-                                        format!("SET NOT NULL",)
+                                        "SET NOT NULL"
                                     },
-                                    column = field.name
+                                    column = quote_identifier(&field.name)
                                 ));
                             }
 
@@ -1236,15 +1586,16 @@ fn compute_diff(tables: &[ParsedTable], prev: &SchemaState, reg: &HashMap<String
                                     "    {YLW}~{RST} {BLD}{:<22}{RST} default {:?} → {:?}",
                                     field.name, previous_default, current_default
                                 ));
+                                let quoted_key = quote_qualified_table_from_key(&key);
                                 if let Some(default) = current_default {
                                     up.push(format!(
-                                        "ALTER TABLE {key} ALTER COLUMN {column} SET DEFAULT {default};",
-                                        column = field.name
+                                        "ALTER TABLE {quoted_key} ALTER COLUMN {column} SET DEFAULT {default};",
+                                        column = quote_identifier(&field.name)
                                     ));
                                 } else {
                                     up.push(format!(
-                                        "ALTER TABLE {key} ALTER COLUMN {column} DROP DEFAULT;",
-                                        column = field.name
+                                        "ALTER TABLE {quoted_key} ALTER COLUMN {column} DROP DEFAULT;",
+                                        column = quote_identifier(&field.name)
                                     ));
                                 }
                             }
@@ -1269,8 +1620,20 @@ fn compute_diff(tables: &[ParsedTable], prev: &SchemaState, reg: &HashMap<String
                     if !current_column_names.contains(previous.name.as_str()) {
                         print_header(&mut summary);
                         summary.push(format!(
-                            "    {RED}-{RST} {BLD}{:<22}{RST} {}  {YLW}removed — add DROP COLUMN manually if intended{RST}",
+                            "    {RED}-{RST} {BLD}{:<22}{RST} {}  {RED}(removed — DROP COLUMN){RST}",
                             previous.name, previous.sql_type
+                        ));
+                        let quoted_key = quote_qualified_table_from_key(&key);
+                        up.push(format!(
+                            "-- ⚠ DESTRUCTIVE: dropping column '{}' from {key}\nALTER TABLE {quoted_key} DROP COLUMN IF EXISTS {};",
+                            previous.name,
+                            quote_identifier(&previous.name)
+                        ));
+                        down.push(format!(
+                            "-- Restore column '{}' in {key} (data is permanently lost)\nALTER TABLE {quoted_key} ADD COLUMN {} {};",
+                            previous.name,
+                            quote_identifier(&previous.name),
+                            previous.sql_type
                         ));
                     }
                 }
@@ -1331,8 +1694,15 @@ fn compute_diff(tables: &[ParsedTable], prev: &SchemaState, reg: &HashMap<String
             .iter()
             .any(|table| &table.full_name() == previous_key)
         {
+            let qualified = quote_qualified_table_from_key(previous_key);
             summary.push(format!(
-                "  {YLW}⚠ Table removed: {previous_key} — add DROP TABLE manually if intended{RST}"
+                "  {RED}-{RST} {BLD}{previous_key}{RST}  {RED}(table removed — DROP TABLE CASCADE){RST}"
+            ));
+            up.push(format!(
+                "-- ⚠ DESTRUCTIVE: dropping table '{previous_key}'\nDROP TABLE IF EXISTS {qualified} CASCADE;"
+            ));
+            down.push(format!(
+                "-- Table '{previous_key}' was dropped. Data cannot be automatically restored.\n-- Recreate this table manually if needed."
             ));
         }
     }
@@ -1443,23 +1813,48 @@ fn normalize_label(label: &str) -> Result<String> {
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
-    let label = match args.as_slice() {
-        [] => "auto".to_string(),
-        [flag] if matches!(flag.as_str(), "-h" | "--help") => {
-            print_usage();
-            return Ok(());
+    let mut label = "auto".to_string();
+    let mut check_mode = false;
+    let mut dry_run = false;
+    let mut empty_mode = false;
+
+    let mut idx = 0;
+    while idx < args.len() {
+        match args[idx].as_str() {
+            "-h" | "--help" => {
+                print_usage();
+                return Ok(());
+            }
+            "--check" => check_mode = true,
+            "--dry-run" => dry_run = true,
+            "--empty" => empty_mode = true,
+            arg if !arg.starts_with("--") => label = normalize_label(arg)?,
+            flag => {
+                eprintln!("{RED}Unknown flag: {flag}{RST}\n");
+                print_usage();
+                std::process::exit(1);
+            }
         }
-        [label] if !label.starts_with("--") => normalize_label(label)?,
-        _ => {
-            eprintln!("{RED}Invalid arguments for cargo makemigrations.{RST}\n");
-            print_usage();
-            std::process::exit(1);
-        }
-    };
+        idx += 1;
+    }
 
     println!("\n{BLD}╔══════════════════════════════════════╗");
     println!("║  cargo makemigrations               ║");
     println!("╚══════════════════════════════════════╝{RST}\n");
+
+    // ── --empty mode: skip scanning, write an empty migration immediately ──────
+    if empty_mode {
+        let empty_diff = Diff {
+            up: vec!["-- Write your UP migration SQL here.\n-- Example: ALTER TABLE schema.table ADD COLUMN foo TEXT;".to_string()],
+            down: vec!["-- Write your DOWN (rollback) SQL here.\n-- Example: ALTER TABLE schema.table DROP COLUMN foo;".to_string()],
+            summary: vec![format!("  {DIM}(empty migration — edit up.sql and down.sql){RST}")],
+        };
+        let migration_dir = write_migration(&empty_diff, &label)?;
+        let dir_name = migration_dir.file_name().unwrap().to_string_lossy();
+        println!("{GRN}{BLD}Empty migration created:{RST} {dir_name}");
+        println!("  {DIM}Edit up.sql and down.sql to add your custom SQL.{RST}\n");
+        return Ok(());
+    }
 
     println!("{CYN}Scanning model files...{RST}");
     let src_dir = PathBuf::from(MANIFEST_DIR).join("src");
@@ -1565,12 +1960,40 @@ fn main() -> Result<()> {
     });
 
     if !has_real_changes {
+        if check_mode {
+            println!("  {GRN}✓  No changes detected — database is up to date.{RST}\n");
+            return Ok(());
+        }
         println!("  {GRN}✓  No changes detected — database is already up to date.{RST}\n");
         return Ok(());
     }
 
     for line in &diff.summary {
         println!("{line}");
+    }
+
+    // ── --check mode: report changes and exit 1 ───────────────────────────────
+    if check_mode {
+        println!("\n{RED}{BLD}Changes detected — run 'cargo makemigrations' to generate a migration.{RST}\n");
+        std::process::exit(1);
+    }
+
+    // ── --dry-run mode: print SQL without writing files ───────────────────────
+    if dry_run {
+        println!("\n{CYN}{BLD}─── up.sql (dry-run) ───────────────────────────────{RST}");
+        for stmt in &diff.up {
+            println!("{stmt}\n");
+        }
+        println!("{CYN}{BLD}─── down.sql (dry-run) ─────────────────────────────{RST}");
+        if diff.down.is_empty() {
+            println!("{DIM}-- No automatic down migration.{RST}");
+        } else {
+            for stmt in &diff.down {
+                println!("{stmt}\n");
+            }
+        }
+        println!("\n{YLW}Dry-run complete — no files written.{RST}\n");
+        return Ok(());
     }
 
     let is_first = previous_state.tables.is_empty();
@@ -1604,7 +2027,7 @@ fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_label;
+    use super::{normalize_label, quote_column_list};
 
     #[test]
     fn normalizes_hyphenated_labels() {
@@ -1618,5 +2041,13 @@ mod tests {
     fn rejects_invalid_labels() {
         assert!(normalize_label("bad label").is_err());
         assert!(normalize_label("").is_err());
+    }
+
+    #[test]
+    fn quotes_reserved_column_names_in_lists() {
+        assert_eq!(
+            quote_column_list(&["order".to_string(), "created_at".to_string()]),
+            "\"order\", created_at"
+        );
     }
 }

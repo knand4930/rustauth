@@ -59,7 +59,7 @@ pub async fn dashboard(
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
     let actor = require_admin(&state, &headers).await?;
-    tracing::debug!(admin_id = %actor.id, "Loading admin dashboard");
+    tracing::info!(admin_id = %actor.id, "Admin accessing dashboard");
 
     let metrics_sql = format!(
         r#"
@@ -94,7 +94,19 @@ pub async fn dashboard(
     );
     let metrics = sqlx::query_as::<_, DashboardMetricsRow>(&metrics_sql)
         .fetch_one(&state.db)
-        .await?;
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to fetch dashboard metrics");
+            AppError::Internal(format!("Failed to load dashboard metrics: {e}"))
+        })?;
+
+    tracing::info!(
+        admin_id = %actor.id,
+        total_users = metrics.total_users,
+        active_users = metrics.active_users,
+        blog_posts = metrics.total_blog_posts,
+        "Admin dashboard loaded successfully"
+    );
 
     let response = AdminDashboardResponse {
         site_title: state.admin.site_title.clone(),

@@ -16,7 +16,7 @@ use crate::error::AppError;
 use crate::response::{ApiMessage, ApiPaginated, ApiSuccess};
 use crate::state::AppState;
 
-use super::models::User;
+use super::models::{RefreshToken, User};
 use super::schemas::{
     AuthTokenResponse, ListUsersQuery, LoginRequest, RegisterRequest, UpdateUserRequest,
     UserResponse,
@@ -36,6 +36,7 @@ use super::schemas::{
     ),
     tag = "Authentication"
 )]
+
 pub async fn register(
     State(state): State<AppState>,
     Json(body): Json<RegisterRequest>,
@@ -109,10 +110,21 @@ pub async fn register(
 )]
 pub async fn login(
     State(state): State<AppState>,
+    axum::extract::ConnectInfo(client_addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     Json(body): Json<LoginRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     body.validate()
-        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+        .map_err(|e| AppError::BadRequest(format!("Invalid login request: {}", e)))?;
+
+    // Validate email is not empty
+    if body.email.trim().is_empty() {
+        return Err(AppError::BadRequest("Email is required".to_string()));
+    }
+
+    // Validate password is not empty
+    if body.password.is_empty() {
+        return Err(AppError::BadRequest("Password is required".to_string()));
+    }
 
     let login_sql = format!(
         "SELECT * FROM {} WHERE email = $1 AND is_active = true",
@@ -134,14 +146,21 @@ pub async fn login(
     )
     .map_err(|_| AppError::Unauthorized("Invalid email or password".to_string()))?;
 
+    // Capture client IP address
+    let client_ip = client_addr.ip().to_string();
+
+    // Update login metadata including IP address
     let touch_login_sql = format!(
-        "UPDATE {} SET login_count = login_count + 1, last_login_at = NOW() WHERE id = $1",
+        "UPDATE {} SET login_count = login_count + 1, last_login_at = NOW(), last_login_ip = $2 WHERE id = $1",
         User::QUALIFIED_TABLE
     );
     sqlx::query(&touch_login_sql)
         .bind(user.id)
+        .bind(&client_ip)
         .execute(&state.db)
         .await?;
+
+    tracing::info!(user_id = %user.id, email = %user.email.as_ref().unwrap_or(&String::new()), ip = %client_ip, "User logged in successfully");
 
     // Use shared config from state — no env re-read on each request
     let config = &state.config;
@@ -172,6 +191,22 @@ pub async fn login(
 
     let refresh_token = jsonwebtoken::encode(&header, &refresh_claims, &encoding_key)
         .map_err(|e| AppError::Internal(format!("Token generation failed: {e}")))?;
+
+    // Persist refresh token to database for security tracking
+    let insert_refresh_sql = format!(
+        r#"
+        INSERT INTO {} (id, refresh_token, expires_at, is_active, user_id, ip_address, created_at, updated_at)
+        VALUES (gen_random_uuid(), $1, $2, true, $3, $4, NOW(), NOW())
+        "#,
+        RefreshToken::QUALIFIED_TABLE
+    );
+    sqlx::query(&insert_refresh_sql)
+        .bind(&refresh_token)
+        .bind(refresh_exp)
+        .bind(user.id)
+        .bind(&client_ip)
+        .execute(&state.db)
+        .await?;
 
     let response = AuthTokenResponse {
         access_token,
@@ -302,12 +337,13 @@ pub async fn update_user(
         r#"
         UPDATE {} SET
             full_name    = COALESCE($2, full_name),
-            company      = COALESCE($3, company),
-            phone_number = COALESCE($4, phone_number),
-            timezone     = COALESCE($5, timezone),
-            language     = COALESCE($6, language),
-            avatar_url   = COALESCE($7, avatar_url),
-            location     = COALESCE($8, location),
+            details      = COALESCE($3, details),
+            company      = COALESCE($4, company),
+            phone_number = COALESCE($5, phone_number),
+            timezone     = COALESCE($6, timezone),
+            language     = COALESCE($7, language),
+            avatar_url   = COALESCE($8, avatar_url),
+            location     = COALESCE($9, location),
             updated_at   = NOW()
         WHERE id = $1
         RETURNING *
@@ -317,6 +353,7 @@ pub async fn update_user(
     let user = sqlx::query_as::<_, User>(&update_sql)
         .bind(id)
         .bind(&body.full_name)
+        .bind(&body.details)
         .bind(&body.company)
         .bind(&body.phone_number)
         .bind(&body.timezone)

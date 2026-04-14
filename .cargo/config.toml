@@ -1,44 +1,11 @@
 [alias]
-# ── App scaffolding ───────────────────────────────────────────────────────────
-#
-#   cargo startapp <name>                   scaffold or repair app-local files
-#   cargo startapp <name> --schema <pg>     same with a custom postgres schema name
-
-startapp       = ["run", "--bin", "startapp",       "--"]
-
-# ── Migrations (Django / Alembic-style) ───────────────────────────────────────
-#
-#   cargo makemigrations                    detect model changes → generate SQL files
-#   cargo makemigrations <label>            same with a custom label
-#
-#   cargo migrate                           apply all pending migrations
-#   cargo migrate status                    show applied / pending list
-#   cargo migrate --fake-initial            mark first migration applied (no SQL)
-#   cargo migrate <name>                    move DB to that exact migration state
-#   cargo migrate <name> --fake             mark migration applied without SQL
-#
-#   cargo showmigrations                    list all migrations with status
-
-makemigrations = ["run", "--bin", "makemigrations", "--"]
-migrate        = ["run", "--bin", "migrate",        "--"]
-showmigrations = ["run", "--bin", "showmigrations", "--"]
-
-# ── Database shells ───────────────────────────────────────────────────────────
-#
-#   cargo dbshell                           native psql session (full tab-completion)
-#   cargo dbshell -- -c "SELECT 1"          run a one-shot psql command
-#   cargo shell                             interactive SQL REPL with table output
-#   cargo shell --command "\\tables"        run one shell command and exit
-#                                           built-ins: \tables  \d <table>  \schema
-#                                                      \count   \indexes   \migrations
-
-dbshell        = ["run", "--bin", "dbshell",        "--"]
-shell          = ["run", "--bin", "shell",          "--"]
-
-# ── Tests ──────────────────────────────────────────────────────────────────────
-#
-#   cargo tests                             run the project test suite
-#   cargo tests auth_flow                   pass through a test filter
-#   cargo tests -- --nocapture             forward extra rust test flags
-
-tests          = ["run", "--bin", "tests",          "--"]
+createsuperuser = "run --bin createsuperuser --"
+dbshell = "run --bin dbshell --"
+inspectdb = "run --bin inspectdb --"
+makemigrations = "run --bin makemigrations --"
+migrate = "run --bin migrate --"
+shell = "run --bin shell --"
+showmigrations = "run --bin showmigrations --"
+squashmigrations = "run --bin squashmigrations --"
+startapp = "run --bin startapp --"
+tests = "run --bin tests --"

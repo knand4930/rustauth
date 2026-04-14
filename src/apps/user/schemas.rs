@@ -40,6 +40,7 @@ pub struct LoginRequest {
 #[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct UpdateUserRequest {
     pub full_name: Option<String>,
+    pub details: Option<String>,
     pub company: Option<String>,
     pub phone_number: Option<String>,
     pub timezone: Option<String>,
