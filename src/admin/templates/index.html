@@ -76,6 +76,7 @@
         .sidebar {
             width: 280px; background: var(--bg-surface);
             border-right: 1px solid var(--border); display: flex; flex-direction: column;
+            flex-shrink: 0; position: relative; z-index: 2;
         }
         .sidebar-header {
             padding: 1.5rem; border-bottom: 1px solid var(--border);
@@ -96,7 +97,7 @@
             background: rgba(59, 130, 246, 0.1); border-right: 3px solid var(--accent); color: #60a5fa;
         }
 
-        .main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
         .topbar {
             height: 64px; background: var(--glass); backdrop-filter: blur(10px);
             border-bottom: 1px solid var(--border); display: flex; justify-content: space-between;
@@ -280,16 +281,21 @@
                         const a = document.createElement('a');
                         a.href = `/adminx/${app.key}/${res.key}`;
                         a.className = 'nav-link';
+                        a.dataset.route = 'true';
                         a.innerText = res.label;
-                        a.onclick = (e) => {
-                            e.preventDefault();
-                            history.pushState(null, '', a.href);
-                            this.route();
-                        };
                         section.appendChild(a);
                     }
                     nav.appendChild(section);
                 }
+
+                nav.onclick = (e) => {
+                    const link = e.target.closest('a[data-route]');
+                    if (!link) return;
+
+                    e.preventDefault();
+                    history.pushState(null, '', link.getAttribute('href'));
+                    this.route();
+                };
             },
 
             route() {
@@ -321,13 +327,20 @@
                 view.innerHTML = `<div class="fade-in">Loading overview...</div>`;
 
                 try {
-                    const stats = await API.req('/dashboard');
+                    const res = await API.req('/dashboard');
+                    const stats = res.data || res;
+
+                    const siteTitle = stats.site_title || 'AdminX Panel';
+                    const siteHeader = stats.site_header || 'Administration';
+
                     view.innerHTML = `
                         <div class="fade-in">
                             <div class="header-actions">
-                                <h1 class="page-title">Dashboard Overview</h1>
+                                <h1 class="page-title">${siteHeader} Overview <span style="font-size: 1rem; color: var(--text-muted); font-weight: normal; margin-left: 0.5rem;">(${siteTitle})</span></h1>
                             </div>
-                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
+                            
+                            <h3 style="margin-bottom: 1rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 0.85rem; letter-spacing: 0.05em;">User Statistics</h3>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
                                 <div class="stat-card">
                                     <div class="stat-label">Total Users</div>
                                     <div class="stat-value">${stats.total_users || 0}</div>
@@ -337,43 +350,82 @@
                                     <div class="stat-value" style="color: var(--success);">${stats.active_users || 0}</div>
                                 </div>
                                 <div class="stat-card">
-                                    <div class="stat-label">Blog Posts</div>
-                                    <div class="stat-value">${stats.blog_posts || 0}</div>
+                                    <div class="stat-label">Admin Users</div>
+                                    <div class="stat-value" style="color: #a855f7;">${stats.admin_users || 0}</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-label">Verified Emails</div>
+                                    <div class="stat-value" style="color: var(--accent);">${stats.verified_users || 0}</div>
+                                </div>
+                            </div>
+
+                            <h3 style="margin-bottom: 1rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 0.85rem; letter-spacing: 0.05em;">Content & Activity</h3>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2.5rem;">
+                                <div class="stat-card">
+                                    <div class="stat-label">Total Posts</div>
+                                    <div class="stat-value">${stats.total_blog_posts || 0}</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-label">Published Posts</div>
+                                    <div class="stat-value" style="color: var(--success);">${stats.published_blog_posts || 0}</div>
                                 </div>
                                 <div class="stat-card">
                                     <div class="stat-label">Pending Comments</div>
-                                    <div class="stat-value" style="color: var(--danger);">${stats.comments || 0}</div>
+                                    <div class="stat-value" style="color: var(--danger);">${stats.pending_comments || 0}</div>
                                 </div>
                             </div>
-                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem;">
+                            
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">
                                 <div class="card" style="padding: 1.5rem;">
-                                    <h3 style="margin-bottom: 1rem;">System Status</h3>
-                                    <div style="display: flex; flex-direction: column; gap: 0.75rem;">
-                                        <div style="display: flex; justify-content: space-between;">
-                                            <span style="color: var(--text-muted);">Apps Registered</span>
-                                            <span style="font-weight: 600;">${stats.app_count}</span>
+                                    <h3 style="margin-bottom: 1.5rem; font-size: 1.1rem;">System Core</h3>
+                                    <div style="display: flex; flex-direction: column; gap: 1rem;">
+                                        <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border);">
+                                            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                                <div style="width: 8px; height: 8px; border-radius: 50%; background: var(--success);"></div>
+                                                <span style="color: var(--text-main);">Apps Registered</span>
+                                            </div>
+                                            <span style="font-weight: 600; font-size: 1.1rem;">${stats.registered_apps || 0}</span>
                                         </div>
-                                        <div style="display: flex; justify-content: space-between;">
-                                            <span style="color: var(--text-muted);">Total Resources</span>
-                                            <span style="font-weight: 600;">${stats.resource_count}</span>
+                                        <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border);">
+                                            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                                <div style="width: 8px; height: 8px; border-radius: 50%; background: var(--accent);"></div>
+                                                <span style="color: var(--text-main);">Model Resources</span>
+                                            </div>
+                                            <span style="font-weight: 600; font-size: 1.1rem;">${stats.registered_resources || 0}</span>
                                         </div>
-                                        <div style="display: flex; justify-content: space-between;">
-                                            <span style="color: var(--text-muted);">API Status</span>
-                                            <span class="badge badge-true">Online</span>
+                                        <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.75rem;">
+                                            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                                <span style="font-size: 1.2rem;">📡</span>
+                                                <span style="color: var(--text-main);">API Status</span>
+                                            </div>
+                                            <span class="badge badge-true" style="padding: 0.35rem 0.75rem;">Tracking Nominal</span>
                                         </div>
                                     </div>
                                 </div>
-                                <div class="card" style="padding: 1.5rem; display: flex; align-items: center; justify-content: center; background: rgba(59, 130, 246, 0.05);">
-                                    <div style="text-align: center;">
-                                        <p style="color: var(--text-muted); margin-bottom: 0.5rem;">Welcome back,</p>
-                                        <h2 style="color: #60a5fa;">${this.user.username}</h2>
+                                
+                                <div class="card" style="padding: 1.5rem; display: flex; flex-direction: column; justify-content: center; background: linear-gradient(135deg, rgba(30, 41, 59, 0.4), rgba(59, 130, 246, 0.1)); border: 1px solid rgba(59, 130, 246, 0.2);">
+                                    <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;">
+                                        <div style="width: 48px; height: 48px; border-radius: 50%; background: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: bold; color: white;">
+                                            ${this.user.username.charAt(0).toUpperCase()}
+                                        </div>
+                                        <div>
+                                            <p style="color: var(--text-muted); margin-bottom: 0.25rem; font-size: 0.85rem;">Currently signed in as</p>
+                                            <h3 style="color: #60a5fa; font-size: 1.25rem;">${this.user.username}</h3>
+                                        </div>
+                                    </div>
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-top: 1rem;">
+                                        <a href="#" onclick="event.preventDefault(); history.pushState(null, '', '/adminx/user/users/new'); AdminApp.route();" class="btn btn-secondary" style="justify-content: center; font-size: 0.85rem;">+ New User</a>
+                                        <a href="#" onclick="event.preventDefault(); history.pushState(null, '', '/adminx/blogs/blog_posts/new'); AdminApp.route();" class="btn btn-primary" style="justify-content: center; font-size: 0.85rem;">+ Write Post</a>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     `;
                 } catch(e) {
-                    view.innerHTML = `<div style="color:red">Failed to load dashboard: ${e.message}</div>`;
+                    view.innerHTML = `<div style="color:var(--danger); padding: 2rem; background: var(--bg-surface); border-radius: 8px; border: 1px solid var(--danger);">
+                        <h3 style="margin-bottom: 0.5rem;">Failed to load dashboard</h3>
+                        <p style="color: var(--text-muted);">${e.message}</p>
+                    </div>`;
                 }
             },
 
@@ -389,6 +441,12 @@
                 }
                 if (typeof val === 'object') return JSON.stringify(val);
                 return val;
+            },
+
+            findResource(appKey, resKey) {
+                if (!this.config || !this.config.apps) return null;
+                const app = this.config.apps.find(a => a.key === appKey);
+                return app ? app.resources.find(r => r.key === resKey) : null;
             },
 
             async renderList(appKey, resKey) {
