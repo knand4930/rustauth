@@ -1,3 +1,75 @@
+# .gitignore for RustAuth
+# Generated to exclude build artifacts, secrets, env files, editor files, and large caches
+
+# Rust / Cargo
+/target/
+**/target/
+
+# Build output
+/target/debug/
+/target/release/
+/target/doc/
+
+# Environment files (keep .env.example tracked)
+.env
+.env.local
+.env.*
+!.env.example
+
+# SQLx local metadata
+sqlx-data.json
+
+# Logs and runtime files
+*.log
+logs/
+run/
+tmp/
+
+# Editor directories and files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Backup and swap files
+*~
+*.swp
+*.swo
+*.bak
+*.tmp
+
+# Coverage and profiling
+coverage/
+*.lcov
+*.prof
+
+# Secrets and keys
+secrets/
+secret-*.json
+*.pem
+*.key
+*.crt
+
+# Database dumps & local DB files
+*.sql
+*.dump
+*.sqlite
+*.sqlite3
+
+# Node modules (if any tooling uses node)
+node_modules/
+
+# Packaging
+/dist/
+/build/
+
+# Misc
+*.log
+*.cache
 # =========================
 # Rust / Cargo
 # =========================
