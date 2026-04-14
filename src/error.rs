@@ -71,3 +71,9 @@ impl From<sqlx::Error> for AppError {
         Self::Database(err)
     }
 }
+
+impl From<serde_json::Error> for AppError {
+    fn from(err: serde_json::Error) -> Self {
+        Self::Internal(format!("JSON error: {}", err))
+    }
+}

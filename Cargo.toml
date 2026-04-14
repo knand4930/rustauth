@@ -10,10 +10,12 @@ argon2 = { version = "0.5.3", features = ["password-hash"] }
 async-trait = "0.1.89"
 axum = { version = "0.8.8", features = ["http2", "macros", "ws", "multipart"] }
 axum-extra = { version = "0.12.5", features = ["cookie"] }
+base64 = "0.22"
 chrono = { version = "0.4.44", features = ["serde"] }
 config = "0.15.22"
 dotenv = "0.15.0"
 futures = "0.3.31"
+include_dir = "0.7"
 jsonwebtoken = "10.3.0"
 lettre = "0.11.21"
 rand = "0.10.0"

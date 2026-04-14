@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AdminX Panel</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-base: #0f172a;
+            --bg-surface: #1e293b;
+            --bg-surface-hover: #334155;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --danger: #ef4444;
+            --success: #22c55e;
+            --border: #334155;
+            --glass: rgba(30, 41, 59, 0.7);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            overflow-x: hidden;
+        }
+
+        /* Utils & Micro-animations */
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .btn {
+            padding: 0.5rem 1rem; border: none; border-radius: 6px; cursor: pointer;
+            font-weight: 500; transition: all 0.2s ease; display: inline-flex; align-items: center; gap: 0.5rem;
+            color: white;
+        }
+        .btn-primary { background: var(--accent); box-shadow: 0 4px 14px 0 rgba(59,130,246,0.39); }
+        .btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); }
+        .btn-danger { background: var(--danger); }
+        .btn-secondary { background: var(--bg-surface-hover); }
+
+        .input {
+            width: 100%; padding: 0.75rem 1rem;
+            background: var(--bg-surface); border: 1px solid var(--border);
+            border-radius: 6px; color: var(--text-main); outline: none;
+            transition: all 0.2s;
+        }
+        .input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(59,130,246,0.2); }
+
+        /* Login Screen */
+        #login-view {
+            display: none; flex-direction: column; justify-content: center; align-items: center;
+            width: 100vw; height: 100vh;
+            background: radial-gradient(circle at top left, #1e293b, #0f172a);
+        }
+        .login-box {
+            background: rgba(30, 41, 59, 0.5); backdrop-filter: blur(12px);
+            padding: 2.5rem; border-radius: 16px; border: 1px solid var(--border);
+            width: 100%; max-width: 400px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+        .login-box h1 { margin-bottom: 2rem; text-align: center; font-size: 1.5rem; background: linear-gradient(to right, #60a5fa, #a78bfa); -webkit-background-clip: text; color: transparent; }
+        .form-group { margin-bottom: 1.5rem; }
+        .form-group label { display: block; margin-bottom: 0.5rem; font-size: 0.875rem; color: var(--text-muted); }
+
+        /* Admin Layout */
+        #app-view { display: none; width: 100vw; height: 100vh; }
+        
+        .sidebar {
+            width: 280px; background: var(--bg-surface);
+            border-right: 1px solid var(--border); display: flex; flex-direction: column;
+        }
+        .sidebar-header {
+            padding: 1.5rem; border-bottom: 1px solid var(--border);
+            font-weight: 700; font-size: 1.25rem; display: flex; align-items: center; gap: 0.75rem;
+        }
+        .sidebar-nav { padding: 1rem 0; overflow-y: auto; flex: 1; }
+        .nav-app { margin-bottom: 1.5rem; }
+        .nav-app-title {
+            padding: 0 1.5rem 0.5rem; font-size: 0.75rem; text-transform: uppercase;
+            letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600;
+        }
+        .nav-link {
+            display: block; padding: 0.6rem 1.5rem;
+            color: var(--text-main); text-decoration: none;
+            transition: all 0.2s; font-size: 0.9rem;
+        }
+        .nav-link:hover, .nav-link.active {
+            background: rgba(59, 130, 246, 0.1); border-right: 3px solid var(--accent); color: #60a5fa;
+        }
+
+        .main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .topbar {
+            height: 64px; background: var(--glass); backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border); display: flex; justify-content: space-between;
+            align-items: center; padding: 0 2rem;
+        }
+        .content-area { padding: 2rem; overflow-y: auto; flex: 1; }
+        
+        /* Tables */
+        .card {
+            background: var(--bg-surface); border: 1px solid var(--border);
+            border-radius: 8px; overflow: hidden;
+        }
+        table { width: 100%; border-collapse: collapse; text-align: left; }
+        th { background: rgba(0,0,0,0.2); padding: 1rem; font-size: 0.85rem; color: var(--text-muted); font-weight: 600; border-bottom: 1px solid var(--border); text-transform: uppercase; letter-spacing: 0.05em; }
+        td { padding: 1rem; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+        tr:hover td { background: rgba(255,255,255,0.02); }
+        tr:last-child td { border-bottom: none; }
+        
+        /* Badges */
+        .badge { padding: 0.25rem 0.6rem; border-radius: 99px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; }
+        .badge-true { background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.2); }
+        .badge-false { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.2); }
+        
+        .header-actions { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; gap: 1rem; flex-wrap: wrap; }
+        .page-title { font-size: 1.75rem; font-weight: 700; color: var(--text-main); }
+
+        /* Dashboard Stats */
+        .stat-card {
+            background: linear-gradient(145deg, var(--bg-surface), #1e293b);
+            padding: 1.5rem; border-radius: 12px; border: 1px solid var(--border);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .stat-card:hover { transform: translateY(-3px); box-shadow: 0 10px 25px -5px rgba(0,0,0,0.3); }
+        .stat-value { font-size: 2.25rem; font-weight: 700; margin-top: 0.5rem; color: #60a5fa; }
+        .stat-label { color: var(--text-muted); font-size: 0.85rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
+
+        /* Detail View Grid */
+        .detail-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.5rem; }
+        .detail-item { padding: 1.25rem; background: rgba(0,0,0,0.1); border-radius: 8px; border-left: 3px solid var(--accent); }
+        .detail-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600; margin-bottom: 0.5rem; }
+        .detail-value { font-size: 1rem; color: var(--text-main); word-break: break-all; }
+
+        /* Dynamic Forms */
+        .generic-form { display: grid; gap: 1.5rem; max-width: 800px; padding: 1rem 0; }
+        .search-container { position: relative; max-width: 400px; width: 100%; }
+        .search-icon { position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); pointer-events: none; }
+        .search-input { padding-left: 2.5rem !important; }
+    </style>
+</head>
+<body>
+
+    <div id="login-view">
+        <div class="login-box fade-in">
+            <h1>AdminX</h1>
+            <form id="login-form">
+                <div class="form-group">
+                    <label>Email Address</label>
+                    <input type="text" id="username" class="input" required>
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="password" class="input" required>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center; padding: 0.75rem;">Sign In</button>
+                <div id="login-error" style="color: var(--danger); margin-top: 1rem; text-align: center; font-size: 0.875rem;"></div>
+            </form>
+        </div>
+    </div>
+
+    <div id="app-view">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                🚀 AdminX
+            </div>
+            <div class="sidebar-nav" id="sidebar-nav">
+                <!-- Auto generated -->
+            </div>
+        </aside>
+        <main class="main-content">
+            <header class="topbar">
+                <div class="breadcrumb" id="top-breadcrumb">Dashboard</div>
+                <div class="user-menu" style="display: flex; gap: 1rem; align-items: center;">
+                    <span id="user-display" style="font-size: 0.9rem; color: var(--text-muted);"></span>
+                    <button onclick="AdminApp.logout()" class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">Logout</button>
+                </div>
+            </header>
+            <div class="content-area" id="router-view">
+                <!-- Rendered views will appear here -->
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const API = {
+            async req(path, opts = {}) {
+                opts.headers = { 'Content-Type': 'application/json', ...opts.headers };
+                const res = await fetch(`/adminx/api${path}`, opts);
+                if (res.status === 401 || res.status === 403) {
+                    AdminApp.showLogin();
+                    throw new Error("Unauthorized");
+                }
+                if (!res.ok) {
+                    const text = await res.text();
+                    throw new Error(text || res.statusText);
+                }
+                return res.json();
+            }
+        };
+
+        const AdminApp = {
+            config: null,
+            user: null,
+
+            async init() {
+                try {
+                    const sessionRes = await API.req('/auth/me');
+                    this.user = sessionRes.user;
+                    await this.loadApp();
+                } catch (e) {
+                    this.showLogin();
+                }
+                
+                window.addEventListener('popstate', () => this.route());
+            },
+
+            showLogin() {
+                document.getElementById('app-view').style.display = 'none';
+                document.getElementById('login-view').style.display = 'flex';
+            },
+
+            async doLogin(e) {
+                e.preventDefault();
+                const u = document.getElementById('username').value;
+                const p = document.getElementById('password').value;
+                const errBox = document.getElementById('login-error');
+                errBox.innerText = 'Signing in...';
+                
+                try {
+                    const res = await API.req('/auth/login', {
+                        method: 'POST',
+                        body: JSON.stringify({ username: u, password: p })
+                    });
+                    this.user = res.user;
+                    errBox.innerText = '';
+                    await this.loadApp();
+                } catch (e) {
+                    errBox.innerText = 'Invalid credentials or access denied';
+                }
+            },
+
+            async logout() {
+                await API.req('/auth/logout', { method: 'POST' });
+                this.user = null;
+                this.showLogin();
+            },
+
+            async loadApp() {
+                try {
+                    this.config = await API.req('/config');
+                    document.getElementById('login-view').style.display = 'none';
+                    document.getElementById('app-view').style.display = 'flex';
+                    document.getElementById('user-display').innerText = this.user.username;
+                    this.renderSidebar();
+                    this.route();
+                } catch(e) {
+                    console.error("Failed to load config", e);
+                }
+            },
+
+            renderSidebar() {
+                const nav = document.getElementById('sidebar-nav');
+                nav.innerHTML = `
+                    <a href="/adminx" class="nav-link" data-route>Dashboard</a>
+                `;
+                
+                for (const app of this.config.apps) {
+                    const section = document.createElement('div');
+                    section.className = 'nav-app';
+                    section.innerHTML = `<div class="nav-app-title">${app.label}</div>`;
+                    for (const res of app.resources) {
+                        const a = document.createElement('a');
+                        a.href = `/adminx/${app.key}/${res.key}`;
+                        a.className = 'nav-link';
+                        a.innerText = res.label;
+                        a.onclick = (e) => {
+                            e.preventDefault();
+                            history.pushState(null, '', a.href);
+                            this.route();
+                        };
+                        section.appendChild(a);
+                    }
+                    nav.appendChild(section);
+                }
+            },
+
+            route() {
+                // simple router
+                const path = window.location.pathname.replace('/adminx', '') || '/';
+                const parts = path.split('/').filter(Boolean);
+                
+                // Active state
+                document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+                const activeLink = document.querySelector(`.nav-link[href='/adminx${path}']`) || document.querySelector(`.nav-link[href='/adminx/${parts[0]}/${parts[1]}']`);
+                if(activeLink) activeLink.classList.add('active');
+
+                if (parts.length === 0) {
+                    this.renderDashboard();
+                } else if (parts.length === 2) {
+                    this.renderList(parts[0], parts[1]);
+                } else if (parts.length === 3 && parts[2] === 'new') {
+                    this.renderForm(parts[0], parts[1], null);
+                } else if (parts.length === 4 && parts[3] === 'view') {
+                    this.renderView(parts[0], parts[1], parts[2]);
+                } else if (parts.length === 3) {
+                    this.renderForm(parts[0], parts[1], parts[2]);
+                }
+            },
+
+            async renderDashboard() {
+                document.getElementById('top-breadcrumb').innerText = 'Dashboard';
+                const view = document.getElementById('router-view');
+                view.innerHTML = `<div class="fade-in">Loading overview...</div>`;
+
+                try {
+                    const stats = await API.req('/dashboard');
+                    view.innerHTML = `
+                        <div class="fade-in">
+                            <div class="header-actions">
+                                <h1 class="page-title">Dashboard Overview</h1>
+                            </div>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
+                                <div class="stat-card">
+                                    <div class="stat-label">Total Users</div>
+                                    <div class="stat-value">${stats.total_users || 0}</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-label">Active Users</div>
+                                    <div class="stat-value" style="color: var(--success);">${stats.active_users || 0}</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-label">Blog Posts</div>
+                                    <div class="stat-value">${stats.blog_posts || 0}</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-label">Pending Comments</div>
+                                    <div class="stat-value" style="color: var(--danger);">${stats.comments || 0}</div>
+                                </div>
+                            </div>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem;">
+                                <div class="card" style="padding: 1.5rem;">
+                                    <h3 style="margin-bottom: 1rem;">System Status</h3>
+                                    <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                                        <div style="display: flex; justify-content: space-between;">
+                                            <span style="color: var(--text-muted);">Apps Registered</span>
+                                            <span style="font-weight: 600;">${stats.app_count}</span>
+                                        </div>
+                                        <div style="display: flex; justify-content: space-between;">
+                                            <span style="color: var(--text-muted);">Total Resources</span>
+                                            <span style="font-weight: 600;">${stats.resource_count}</span>
+                                        </div>
+                                        <div style="display: flex; justify-content: space-between;">
+                                            <span style="color: var(--text-muted);">API Status</span>
+                                            <span class="badge badge-true">Online</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="card" style="padding: 1.5rem; display: flex; align-items: center; justify-content: center; background: rgba(59, 130, 246, 0.05);">
+                                    <div style="text-align: center;">
+                                        <p style="color: var(--text-muted); margin-bottom: 0.5rem;">Welcome back,</p>
+                                        <h2 style="color: #60a5fa;">${this.user.username}</h2>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } catch(e) {
+                    view.innerHTML = `<div style="color:red">Failed to load dashboard: ${e.message}</div>`;
+                }
+            },
+
+            formatValue(val) {
+                if (val === null || val === undefined) return '-';
+                if (typeof val === 'boolean') {
+                    return `<span class="badge badge-${val}">${val ? 'Active' : 'Inactive'}</span>`;
+                }
+                if (typeof val === 'string' && (val.includes('T') && val.includes('Z') || /^\d{4}-\d{2}-\d{2}/.test(val))) {
+                    try { 
+                        return new Date(val).toLocaleString(); 
+                    } catch(e) { return val; }
+                }
+                if (typeof val === 'object') return JSON.stringify(val);
+                return val;
+            },
+
+            async renderList(appKey, resKey) {
+                const res = this.findResource(appKey, resKey);
+                if (!res) return;
+                
+                const searchParams = new URLSearchParams(window.location.search);
+                const query = searchParams.get('q') || '';
+                
+                document.getElementById('top-breadcrumb').innerText = `${appKey} / ${res.label}`;
+                const view = document.getElementById('router-view');
+                view.innerHTML = `<div class="fade-in">Loading data...</div>`;
+
+                try {
+                    const data = await API.req(`/records/${appKey}/${resKey}?per_page=50&search=${encodeURIComponent(query)}`);
+                    
+                    const cols = res.list_display.length ? res.list_display : ['id'];
+                    let thead = `<tr>${cols.map(c => `<th>${c.replace(/_/g, ' ')}</th>`).join('')}<th>Actions</th></tr>`;
+                    
+                    let tbody = data.data.map(item => {
+                        let tds = cols.map(c => `<td>${this.formatValue(item[c])}</td>`).join('');
+                        
+                        return `
+                            <tr>
+                                ${tds}
+                                <td style="white-space: nowrap; display: flex; gap: 0.5rem;">
+                                    <button class="btn btn-secondary btn-sm view-btn" data-id="${item.id}" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">View</button>
+                                    <button class="btn btn-primary btn-sm edit-btn" data-id="${item.id}" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">Edit</button>
+                                </td>
+                            </tr>
+                        `;
+                    }).join('');
+
+                    if(data.data.length === 0) {
+                        tbody = `<tr><td colspan="${cols.length + 1}" style="text-align:center; padding: 2rem; color: var(--text-muted);">No records found matching "${query}"</td></tr>`;
+                    }
+
+                    view.innerHTML = `
+                        <div class="fade-in">
+                            <div class="header-actions">
+                                <h2 class="page-title">${res.label}</h2>
+                                <div style="display: flex; gap: 1rem; align-items: center; flex: 1; justify-content: flex-end;">
+                                    <div class="search-container">
+                                        <span class="search-icon">🔍</span>
+                                        <input type="text" class="input search-input" id="list-search" placeholder="Search..." value="${query.replace(/"/g, '&quot;')}">
+                                    </div>
+                                    <button class="btn btn-primary new-btn">Add ${res.model}</button>
+                                </div>
+                            </div>
+                            <div class="card" style="overflow-x: auto;">
+                                <table>
+                                    <thead>${thead}</thead>
+                                    <tbody>${tbody}</tbody>
+                                </table>
+                            </div>
+                        </div>
+                    `;
+
+                    const searchInput = view.querySelector('#list-search');
+                    searchInput.onkeypress = (e) => {
+                        if (e.key === 'Enter') {
+                            const val = searchInput.value;
+                            history.pushState(null, '', `/adminx/${appKey}/${resKey}?q=${encodeURIComponent(val)}`);
+                            this.route();
+                        }
+                    };
+
+                    view.querySelector('.new-btn').onclick = () => {
+                        history.pushState(null, '', `/adminx/${appKey}/${resKey}/new`);
+                        this.route();
+                    };
+
+                    view.querySelectorAll('.view-btn').forEach(b => {
+                        b.onclick = () => {
+                            history.pushState(null, '', `/adminx/${appKey}/${resKey}/${b.dataset.id}/view`);
+                            this.route();
+                        }
+                    });
+
+                    view.querySelectorAll('.edit-btn').forEach(b => {
+                        b.onclick = () => {
+                            history.pushState(null, '', `/adminx/${appKey}/${resKey}/${b.dataset.id}`);
+                            this.route();
+                        }
+                    });
+
+                } catch(e) {
+                    view.innerHTML = `<div style="color:red">Failed to load: ${e.message}</div>`;
+                }
+            },
+
+            async renderView(appKey, resKey, id) {
+                const res = this.findResource(appKey, resKey);
+                if (!res) return;
+                
+                document.getElementById('top-breadcrumb').innerText = `${appKey} / ${res.label} / View`;
+                const view = document.getElementById('router-view');
+                view.innerHTML = `<div class="fade-in">Loading detail...</div>`;
+
+                try {
+                    const item = await API.req(`/records/${appKey}/${resKey}/${id}`);
+                    
+                    let fieldsHtml = Object.entries(item).map(([k, v]) => {
+                        return `
+                            <div class="detail-item">
+                                <div class="detail-label">${k.replace(/_/g, ' ')}</div>
+                                <div class="detail-value">${this.formatValue(v)}</div>
+                            </div>
+                        `;
+                    }).join('');
+
+                    view.innerHTML = `
+                        <div class="fade-in">
+                            <div class="header-actions">
+                                <h2 class="page-title">${res.model} Detail</h2>
+                                <div style="display: flex; gap: 1rem;">
+                                    <button class="btn btn-secondary back-btn">Back to List</button>
+                                    <button class="btn btn-primary edit-btn">Edit Record</button>
+                                </div>
+                            </div>
+                            <div class="card" style="padding: 2rem;">
+                                <div class="detail-grid">
+                                    ${fieldsHtml}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+
+                    view.querySelector('.back-btn').onclick = () => { window.history.back(); };
+                    view.querySelector('.edit-btn').onclick = () => {
+                        history.pushState(null, '', `/adminx/${appKey}/${resKey}/${id}`);
+                        this.route();
+                    }
+                } catch(e) {
+                    view.innerHTML = `<div style="color:red">Failed to load detail: ${e.message}</div>`;
+                }
+            },
+
+            async renderForm(appKey, resKey, id) {
+                const res = this.findResource(appKey, resKey);
+                if (!res) return;
+                
+                document.getElementById('top-breadcrumb').innerText = `${appKey} / ${res.label} / ${id ? 'Edit' : 'New'}`;
+                const view = document.getElementById('router-view');
+                view.innerHTML = `<div class="fade-in">Loading...</div>`;
+
+                let item = {};
+                if (id) {
+                    try {
+                        const itemRes = await API.req(`/records/${appKey}/${resKey}/${id}`);
+                        item = itemRes;
+                    } catch(e) {
+                        view.innerHTML = `<div style="color:red">Failed to load item: ${e.message}</div>`;
+                        return;
+                    }
+                }
+
+                // Auto-generate form fields based on list_display/list_filters for now plus knowledge
+                // We show input fields for everything that exists. We avoid non-editable stuff like created_at.
+                const ignoreFields = ['created_at', 'updated_at'];
+                
+                // If it's a new item, we might not know column names unless we guess from list_display
+                let keysToRender = res.list_display.filter(k => !ignoreFields.includes(k));
+                if (id) {
+                    keysToRender = Object.keys(item).filter(k => !ignoreFields.includes(k));
+                }
+
+                let formHtml = keysToRender.map(k => {
+                    if (k === 'id') return `<input type="hidden" id="f_${k}" value="${item[k]||''}">`;
+                    
+                    let val = item[k];
+                    let input = `<input class="input" type="text" id="f_${k}" value="${val !== undefined && val !== null ? String(val).replace(/"/g, '&quot;') : ''}">`;
+                    
+                    if (typeof val === 'boolean') {
+                        input = `<select class="input" id="f_${k}">
+                            <option value="true" ${val === true ? 'selected' : ''}>True</option>
+                            <option value="false" ${val === false ? 'selected' : ''}>False</option>
+                        </select>`;
+                    }
+                    
+                    return `
+                        <div class="form-group">
+                            <label style="text-transform: capitalize;">${k.replace(/_/g, ' ')}</label>
+                            ${input}
+                        </div>
+                    `;
+                }).join('');
+
+                view.innerHTML = `
+                    <div class="fade-in">
+                        <div class="header-actions">
+                            <h2 class="page-title">${id ? 'Edit' : 'Create'} ${res.model}</h2>
+                            ${id ? `<button class="btn btn-danger" id="delete-btn">Delete</button>` : ''}
+                        </div>
+                        <div class="card" style="padding: 2rem;">
+                            <form id="record-form" class="generic-form">
+                                ${formHtml}
+                                <div style="margin-top: 1rem;">
+                                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                `;
+
+                view.querySelector('#record-form').onsubmit = async (e) => {
+                    e.preventDefault();
+                    // gather values
+                    let payload = {};
+                    keysToRender.forEach(k => {
+                        const el = document.getElementById('f_'+k);
+                        if (!el) return;
+                        let v = el.value;
+                        if (el.tagName === 'SELECT' && (v === 'true' || v === 'false')) v = (v === 'true');
+                        if (v === '' && k !== 'id') v = null; // Basic handling
+                        payload[k] = v;
+                    });
+
+                    try {
+                        let url = `/records/${appKey}/${resKey}`;
+                        let method = 'POST';
+                        if (id) {
+                            url += `/${id}`;
+                            method = 'PUT';
+                        }
+                        await API.req(url, { method, body: JSON.stringify(payload) });
+                        alert("Saved successfully!");
+                        history.pushState(null, '', `/adminx/${appKey}/${resKey}`);
+                        this.route();
+                    } catch(err) {
+                        alert("Error saving: " + err.message);
+                    }
+                };
+
+                if (id) {
+                    view.querySelector('#delete-btn').onclick = async () => {
+                        if (confirm("Are you sure you want to delete this record forever?")) {
+                            try {
+                                await API.req(`/records/${appKey}/${resKey}/${id}`, { method: 'DELETE' });
+                                history.pushState(null, '', `/adminx/${appKey}/${resKey}`);
+                                this.route();
+                            } catch(e) {
+                                alert("Failed to delete: " + e.message);
+                            }
+                        }
+                    };
+                }
+            }
+        };
+
+        document.getElementById('login-form').addEventListener('submit', (e) => AdminApp.doLogin(e));
+        AdminApp.init();
+    </script>
+</body>
+</html>

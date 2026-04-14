@@ -50,6 +50,7 @@ async fn main() {
     let app = axum::Router::new()
         .route("/api/v1/health", axum::routing::get(health_check))
         .merge(admin::routes())
+        .merge(admin::web_routes(state.clone()))
         .merge(apps::routes())
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", apps::ApiDoc::openapi()))
         .layer(TraceLayer::new_for_http())
@@ -59,6 +60,7 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(&address).await.unwrap();
     tracing::info!("Server running on http://{address}");
     tracing::info!("Swagger UI at http://{address}/swagger-ui");
+    tracing::info!("Admin panel at http://{address}/adminx/login/");
 
     axum::serve(listener, app).await.unwrap();
 }
