@@ -1,5 +1,5 @@
 use axum::http::{Method, header};
-use rustauth::{admin, apps, config::AppConfig, db, health_check, state::AppState};
+use rustauth::{admin, apps, config::AppConfig, db, health_check, middleware, state::AppState};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -53,6 +53,10 @@ async fn main() {
         .merge(admin::web_routes(state.clone()))
         .merge(apps::routes())
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", apps::ApiDoc::openapi()))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            middleware::auth::auth_middleware,
+        ))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .with_state(state);
@@ -62,5 +66,7 @@ async fn main() {
     tracing::info!("Swagger UI at http://{address}/swagger-ui");
     tracing::info!("Admin panel at http://{address}/adminx/login/");
 
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>())
+        .await
+        .unwrap();
 }

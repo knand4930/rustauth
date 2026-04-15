@@ -5,7 +5,7 @@
 //
 
 use axum::{
-    Json,
+    Extension, Json,
     extract::{Path, Query, State},
     response::IntoResponse,
 };
@@ -13,13 +13,14 @@ use uuid::Uuid;
 use validator::Validate;
 
 use crate::error::AppError;
+use crate::middleware::auth::AuthUser;
 use crate::response::{ApiMessage, ApiPaginated, ApiSuccess};
 use crate::state::AppState;
 
-use super::models::{RefreshToken, User};
+use super::models::{AccessToken, RefreshToken, User};
 use super::schemas::{
-    AuthTokenResponse, ListUsersQuery, LoginRequest, RegisterRequest, UpdateUserRequest,
-    UserResponse,
+    ListUsersQuery, LoginRequest, LoginRefreshResponse, RegisterRequest, TokenPairResponse,
+    UpdateUserRequest, UserResponse, VerifyTokenRequest, VerifyTokenResponse,
 };
 
 // ─── Auth handlers ───────────────────────────────────────────────────
@@ -36,7 +37,6 @@ use super::schemas::{
     ),
     tag = "Authentication"
 )]
-
 pub async fn register(
     State(state): State<AppState>,
     Json(body): Json<RegisterRequest>,
@@ -97,13 +97,14 @@ pub async fn register(
     Ok(ApiSuccess::created(response))
 }
 
-/// Login with email and password
+/// Login — returns only a refresh token.
+/// Exchange it at POST /api/v1/auth/token/{refresh_token} to get an access token.
 #[utoipa::path(
     post,
     path = "/api/v1/auth/login",
     request_body = LoginRequest,
     responses(
-        (status = 200, description = "Login successful"),
+        (status = 200, description = "Login successful — returns refresh token"),
         (status = 401, description = "Invalid credentials"),
     ),
     tag = "Authentication"
@@ -116,12 +117,9 @@ pub async fn login(
     body.validate()
         .map_err(|e| AppError::BadRequest(format!("Invalid login request: {}", e)))?;
 
-    // Validate email is not empty
     if body.email.trim().is_empty() {
         return Err(AppError::BadRequest("Email is required".to_string()));
     }
-
-    // Validate password is not empty
     if body.password.is_empty() {
         return Err(AppError::BadRequest("Password is required".to_string()));
     }
@@ -146,10 +144,8 @@ pub async fn login(
     )
     .map_err(|_| AppError::Unauthorized("Invalid email or password".to_string()))?;
 
-    // Capture client IP address
     let client_ip = client_addr.ip().to_string();
 
-    // Update login metadata including IP address
     let touch_login_sql = format!(
         "UPDATE {} SET login_count = login_count + 1, last_login_at = NOW(), last_login_ip = $2 WHERE id = $1",
         User::QUALIFIED_TABLE
@@ -160,21 +156,17 @@ pub async fn login(
         .execute(&state.db)
         .await?;
 
-    tracing::info!(user_id = %user.id, email = %user.email.as_ref().unwrap_or(&String::new()), ip = %client_ip, "User logged in successfully");
+    tracing::info!(
+        user_id = %user.id,
+        email   = %user.email.as_ref().unwrap_or(&String::new()),
+        ip      = %client_ip,
+        "User logged in — refresh token issued"
+    );
 
-    // Use shared config from state — no env re-read on each request
+    // Issue a refresh token only (access token is issued on /auth/token exchange)
     let config = &state.config;
     let now = chrono::Utc::now();
-    let access_exp = now + chrono::Duration::minutes(config.jwt_maxage);
     let refresh_exp = now + chrono::Duration::days(7);
-
-    let access_claims = serde_json::json!({
-        "sub": user.id.to_string(),
-        "email": user.email,
-        "exp": access_exp.timestamp(),
-        "iat": now.timestamp(),
-        "type": "access",
-    });
 
     let refresh_claims = serde_json::json!({
         "sub": user.id.to_string(),
@@ -184,20 +176,16 @@ pub async fn login(
     });
 
     let encoding_key = jsonwebtoken::EncodingKey::from_secret(config.jwt_secret.as_bytes());
-    let header = jsonwebtoken::Header::default();
+    let refresh_token = jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &refresh_claims,
+        &encoding_key,
+    )
+    .map_err(|e| AppError::Internal(format!("Token generation failed: {e}")))?;
 
-    let access_token = jsonwebtoken::encode(&header, &access_claims, &encoding_key)
-        .map_err(|e| AppError::Internal(format!("Token generation failed: {e}")))?;
-
-    let refresh_token = jsonwebtoken::encode(&header, &refresh_claims, &encoding_key)
-        .map_err(|e| AppError::Internal(format!("Token generation failed: {e}")))?;
-
-    // Persist refresh token to database for security tracking
     let insert_refresh_sql = format!(
-        r#"
-        INSERT INTO {} (id, refresh_token, expires_at, is_active, user_id, ip_address, created_at, updated_at)
-        VALUES (gen_random_uuid(), $1, $2, true, $3, $4, NOW(), NOW())
-        "#,
+        r#"INSERT INTO {} (id, refresh_token, expires_at, is_active, user_id, ip_address, created_at, updated_at)
+           VALUES (gen_random_uuid(), $1, $2, true, $3, $4, NOW(), NOW())"#,
         RefreshToken::QUALIFIED_TABLE
     );
     sqlx::query(&insert_refresh_sql)
@@ -208,15 +196,221 @@ pub async fn login(
         .execute(&state.db)
         .await?;
 
-    let response = AuthTokenResponse {
-        access_token,
+    Ok(ApiSuccess::ok(LoginRefreshResponse {
         refresh_token,
+        token_type: "Bearer".to_string(),
+    }))
+}
+
+/// Exchange a refresh token for a new access + refresh token pair.
+/// The old refresh token is rotated (invalidated) on every call.
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/token/{refresh_token}",
+    params(("refresh_token" = String, Path, description = "Refresh token from /auth/login")),
+    responses(
+        (status = 200, description = "New access + refresh token pair"),
+        (status = 401, description = "Invalid or expired refresh token"),
+    ),
+    tag = "Authentication"
+)]
+pub async fn token_exchange(
+    State(state): State<AppState>,
+    axum::extract::ConnectInfo(client_addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    Path(refresh_token): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    let client_ip = client_addr.ip().to_string();
+    let config = &state.config;
+    let now = chrono::Utc::now();
+
+    // 1. Validate JWT signature + expiry
+    let decoding_key = jsonwebtoken::DecodingKey::from_secret(config.jwt_secret.as_bytes());
+    let claims: serde_json::Value = jsonwebtoken::decode(
+        &refresh_token,
+        &decoding_key,
+        &jsonwebtoken::Validation::default(),
+    )
+    .map_err(|_| AppError::Unauthorized("Invalid or expired refresh token".to_string()))?
+    .claims;
+
+    if claims.get("type").and_then(|t| t.as_str()) != Some("refresh") {
+        return Err(AppError::Unauthorized("Expected a refresh token".to_string()));
+    }
+
+    // 2. Look up the refresh token record in DB
+    let lookup_sql = format!(
+        "SELECT * FROM {} WHERE refresh_token = $1 AND is_active = true AND expires_at > $2",
+        RefreshToken::QUALIFIED_TABLE
+    );
+    let rt_record = sqlx::query_as::<_, RefreshToken>(&lookup_sql)
+        .bind(&refresh_token)
+        .bind(now)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or_else(|| AppError::Unauthorized("Refresh token not found or expired".to_string()))?;
+
+    // 3. Load the associated user
+    let user_sql = format!(
+        "SELECT * FROM {} WHERE id = $1 AND is_active = true",
+        User::QUALIFIED_TABLE
+    );
+    let user = sqlx::query_as::<_, User>(&user_sql)
+        .bind(rt_record.user_id)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or_else(|| AppError::Unauthorized("User not found or inactive".to_string()))?;
+
+    let encoding_key = jsonwebtoken::EncodingKey::from_secret(config.jwt_secret.as_bytes());
+    let header = jsonwebtoken::Header::default();
+
+    // 4. Issue a new access token (short-lived)
+    let access_exp = now + chrono::Duration::minutes(config.jwt_maxage);
+    let access_claims = serde_json::json!({
+        "sub":   user.id.to_string(),
+        "email": user.email,
+        "exp":   access_exp.timestamp(),
+        "iat":   now.timestamp(),
+        "type":  "access",
+    });
+    let access_token = jsonwebtoken::encode(&header, &access_claims, &encoding_key)
+        .map_err(|e| AppError::Internal(format!("Token generation failed: {e}")))?;
+
+    // 5. Rotate refresh token — issue a new one, deactivate the old one
+    let new_refresh_exp = now + chrono::Duration::days(7);
+    let new_refresh_claims = serde_json::json!({
+        "sub": user.id.to_string(),
+        "exp": new_refresh_exp.timestamp(),
+        "iat": now.timestamp(),
+        "type": "refresh",
+    });
+    let new_refresh_token = jsonwebtoken::encode(&header, &new_refresh_claims, &encoding_key)
+        .map_err(|e| AppError::Internal(format!("Token generation failed: {e}")))?;
+
+    // Deactivate old refresh token
+    sqlx::query(&format!(
+        "UPDATE {} SET is_active = false, updated_at = NOW() WHERE id = $1",
+        RefreshToken::QUALIFIED_TABLE
+    ))
+    .bind(rt_record.id)
+    .execute(&state.db)
+    .await?;
+
+    // Insert new refresh token and get its ID (needed to link the access token)
+    let new_rt_id: Uuid = sqlx::query_scalar(&format!(
+        r#"INSERT INTO {} (id, refresh_token, expires_at, is_active, user_id, ip_address, rotated_from_id, created_at, updated_at)
+           VALUES (gen_random_uuid(), $1, $2, true, $3, $4, $5, NOW(), NOW())
+           RETURNING id"#,
+        RefreshToken::QUALIFIED_TABLE
+    ))
+    .bind(&new_refresh_token)
+    .bind(new_refresh_exp)
+    .bind(user.id)
+    .bind(&client_ip)
+    .bind(rt_record.id)
+    .fetch_one(&state.db)
+    .await?;
+
+    // 6. Persist access token to access_tokens table
+    sqlx::query(&format!(
+        r#"INSERT INTO {} (id, user_id, refresh_token_id, access_token, expires_at, is_active, is_single_use, created_at, updated_at)
+           VALUES (gen_random_uuid(), $1, $2, $3, $4, true, false, NOW(), NOW())"#,
+        AccessToken::QUALIFIED_TABLE
+    ))
+    .bind(user.id)
+    .bind(new_rt_id)
+    .bind(&access_token)
+    .bind(access_exp)
+    .execute(&state.db)
+    .await?;
+
+    tracing::info!(
+        user_id = %user.id,
+        ip      = %client_ip,
+        "Token exchange — access + refresh tokens issued"
+    );
+
+    Ok(ApiSuccess::ok(TokenPairResponse {
+        access_token,
+        refresh_token: new_refresh_token,
         token_type: "Bearer".to_string(),
         expires_in: config.jwt_maxage * 60,
         user: user.into(),
-    };
+    }))
+}
 
-    Ok(ApiSuccess::ok(response))
+/// Verify a token (access or refresh).
+/// Checks JWT signature and expiry. Does NOT check DB revocation status.
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/verify",
+    request_body = VerifyTokenRequest,
+    responses(
+        (status = 200, description = "Token is valid"),
+        (status = 401, description = "Token is invalid or expired"),
+    ),
+    tag = "Authentication"
+)]
+pub async fn verify_token(
+    State(state): State<AppState>,
+    Json(body): Json<VerifyTokenRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let decoding_key =
+        jsonwebtoken::DecodingKey::from_secret(state.config.jwt_secret.as_bytes());
+
+    let token_data = jsonwebtoken::decode::<serde_json::Value>(
+        &body.token,
+        &decoding_key,
+        &jsonwebtoken::Validation::default(),
+    )
+    .map_err(|_| AppError::Unauthorized("Invalid or expired token".to_string()))?;
+
+    let claims = token_data.claims;
+    let token_type = claims
+        .get("type")
+        .and_then(|t| t.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    // If caller specified an expected type, enforce it
+    if let Some(ref expected) = body.token_type {
+        if &token_type != expected {
+            return Err(AppError::Unauthorized(format!(
+                "Expected '{expected}' token but got '{token_type}'"
+            )));
+        }
+    }
+
+    Ok(ApiSuccess::ok(VerifyTokenResponse {
+        valid: true,
+        token_type,
+        user_id: claims
+            .get("sub")
+            .and_then(|s| s.as_str())
+            .map(|s| s.to_string()),
+        email: claims
+            .get("email")
+            .and_then(|e| e.as_str())
+            .map(|s| s.to_string()),
+        expires_at: claims.get("exp").and_then(|e| e.as_i64()),
+    }))
+}
+
+/// Return the currently authenticated user's profile.
+/// Requires a valid Bearer access token — validated by the auth middleware.
+#[utoipa::path(
+    get,
+    path = "/api/v1/auth/me",
+    responses(
+        (status = 200, description = "Current user profile"),
+        (status = 401, description = "Not authenticated"),
+    ),
+    security(("Bearer" = [])),
+    tag = "Authentication"
+)]
+pub async fn me(
+    Extension(AuthUser(user)): Extension<AuthUser>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(ApiSuccess::ok(UserResponse::from(user)))
 }
 
 // ─── User CRUD handlers ─────────────────────────────────────────────
@@ -226,9 +420,9 @@ pub async fn login(
     get,
     path = "/api/v1/users",
     params(
-        ("page" = Option<i64>, Query, description = "Page number (default 1)"),
+        ("page"     = Option<i64>, Query, description = "Page number (default 1)"),
         ("per_page" = Option<i64>, Query, description = "Items per page (default 20)"),
-        ("search" = Option<String>, Query, description = "Search by email or name"),
+        ("search"   = Option<String>, Query, description = "Search by email or name"),
     ),
     responses(
         (status = 200, description = "Paginated list of users"),

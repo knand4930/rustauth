@@ -57,6 +57,14 @@ pub struct ListUsersQuery {
     pub search: Option<String>,
 }
 
+/// POST /api/v1/auth/verify
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct VerifyTokenRequest {
+    pub token: String,
+    /// Optional: "access" or "refresh". If set, the endpoint enforces the type.
+    pub token_type: Option<String>,
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  Response schemas
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -97,12 +105,33 @@ impl From<User> for UserResponse {
     }
 }
 
-/// POST /api/v1/auth/login  (response body)
+/// POST /api/v1/auth/login
+/// Login issues only a refresh token. Use /api/v1/auth/token/{refresh_token} to get an access token.
 #[derive(Debug, Serialize, ToSchema)]
-pub struct AuthTokenResponse {
+pub struct LoginRefreshResponse {
+    pub refresh_token: String,
+    pub token_type: String,
+}
+
+/// POST /api/v1/auth/token/{refresh_token}
+/// Validates the refresh token, rotates it, and issues a new access + refresh pair.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct TokenPairResponse {
     pub access_token: String,
     pub refresh_token: String,
     pub token_type: String,
+    /// Access token lifetime in seconds
     pub expires_in: i64,
     pub user: UserResponse,
+}
+
+/// POST /api/v1/auth/verify
+#[derive(Debug, Serialize, ToSchema)]
+pub struct VerifyTokenResponse {
+    pub valid: bool,
+    pub token_type: String,
+    pub user_id: Option<String>,
+    pub email: Option<String>,
+    /// Unix timestamp of token expiry
+    pub expires_at: Option<i64>,
 }

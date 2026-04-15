@@ -13,7 +13,7 @@ use uuid::Uuid;
 // ─── users ───────────────────────────────────────────────────────────
 
 // @table users
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
 pub struct User {
     pub id: Uuid,
     // @unique

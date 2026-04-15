@@ -4,6 +4,7 @@ pub mod commands;
 pub mod config;
 pub mod db;
 pub mod error;
+pub mod middleware;
 pub mod model;
 pub mod response;
 pub mod state;
