@@ -4,6 +4,7 @@ pub mod admin_config;
 pub mod admin_registry;
 pub mod handlers;
 pub mod models;
+pub mod proto_handlers;
 pub mod schemas;
 
 // Re-export key public types
@@ -19,12 +20,12 @@ use crate::state::AppState;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
+        // ── JSON API ──────────────────────────────────────────────────
         .route("/api/v1/blogs", post(handlers::create_blog_post))
         .route("/api/v1/blogs", get(handlers::list_blog_posts))
         .route("/api/v1/blogs/{id}", get(handlers::get_blog_post))
         .route("/api/v1/blogs/{id}", put(handlers::update_blog_post))
         .route("/api/v1/blogs/{id}", delete(handlers::delete_blog_post))
-        // Comments
         .route(
             "/api/v1/blogs/{blog_id}/comments",
             post(handlers::create_comment),
@@ -32,5 +33,34 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/api/v1/blogs/{blog_id}/comments",
             get(handlers::list_comments),
+        )
+        // ── Protobuf API (application/x-protobuf) ────────────────────
+        .route(
+            "/api/v1/proto/blogs",
+            post(proto_handlers::create_blog_post),
+        )
+        .route(
+            "/api/v1/proto/blogs",
+            get(proto_handlers::list_blog_posts),
+        )
+        .route(
+            "/api/v1/proto/blogs/{id}",
+            get(proto_handlers::get_blog_post),
+        )
+        .route(
+            "/api/v1/proto/blogs/{id}",
+            put(proto_handlers::update_blog_post),
+        )
+        .route(
+            "/api/v1/proto/blogs/{id}",
+            delete(proto_handlers::delete_blog_post),
+        )
+        .route(
+            "/api/v1/proto/blogs/{blog_id}/comments",
+            post(proto_handlers::create_comment),
+        )
+        .route(
+            "/api/v1/proto/blogs/{blog_id}/comments",
+            get(proto_handlers::list_comments),
         )
 }

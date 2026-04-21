@@ -169,9 +169,10 @@ pub async fn login(
     let refresh_exp = now + chrono::Duration::days(7);
 
     let refresh_claims = serde_json::json!({
-        "sub": user.id.to_string(),
-        "exp": refresh_exp.timestamp(),
-        "iat": now.timestamp(),
+        "sub":  user.id.to_string(),
+        "exp":  refresh_exp.timestamp(),
+        "iat":  now.timestamp(),
+        "jti":  Uuid::new_v4().to_string(),
         "type": "refresh",
     });
 
@@ -278,9 +279,10 @@ pub async fn token_exchange(
     // 5. Rotate refresh token — issue a new one, deactivate the old one
     let new_refresh_exp = now + chrono::Duration::days(7);
     let new_refresh_claims = serde_json::json!({
-        "sub": user.id.to_string(),
-        "exp": new_refresh_exp.timestamp(),
-        "iat": now.timestamp(),
+        "sub":  user.id.to_string(),
+        "exp":  new_refresh_exp.timestamp(),
+        "iat":  now.timestamp(),
+        "jti":  Uuid::new_v4().to_string(),
         "type": "refresh",
     });
     let new_refresh_token = jsonwebtoken::encode(&header, &new_refresh_claims, &encoding_key)

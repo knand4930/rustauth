@@ -1,5 +1,6 @@
 pub mod admin;
 pub mod apps;
+pub mod proto;
 pub mod commands;
 pub mod config;
 pub mod db;

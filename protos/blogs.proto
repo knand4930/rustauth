@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+package blogs;
+
+// ─── Blog Post ────────────────────────────────────────────────────────
+
+message BlogPost {
+  string id = 1;
+  string title = 2;
+  string slug = 3;
+  string author_id = 4;
+  string content = 5;
+  string short_description = 6;
+  bool is_published = 7;
+  optional int64 published_at = 8;  // Unix timestamp seconds
+  int64 created_at = 9;
+  int64 updated_at = 10;
+}
+
+message BlogPostList {
+  repeated BlogPost posts = 1;
+  int64 total = 2;
+  int64 page = 3;
+  int64 per_page = 4;
+}
+
+// ─── Comment ──────────────────────────────────────────────────────────
+
+message Comment {
+  string id = 1;
+  optional string user_id = 2;
+  optional string guest_name = 3;
+  string blog_post_id = 4;
+  optional string parent_id = 5;
+  string content = 6;
+  bool is_approved = 7;
+  int64 created_at = 8;
+  int64 updated_at = 9;
+}
+
+message CommentList {
+  repeated Comment comments = 1;
+  int32 count = 2;
+}
+
+// ─── Requests ─────────────────────────────────────────────────────────
+
+message CreateBlogPostRequest {
+  string title = 1;
+  string content = 2;
+  string short_description = 3;
+  string author_id = 4;
+  bool is_published = 5;
+}
+
+message UpdateBlogPostRequest {
+  optional string title = 1;
+  optional string content = 2;
+  optional string short_description = 3;
+  optional bool is_published = 4;
+}
+
+message CreateCommentRequest {
+  string content = 1;
+  optional string user_id = 2;
+  optional string guest_name = 3;
+  optional string parent_id = 4;
+}
+
+// ─── Generic responses ────────────────────────────────────────────────
+
+message DeleteResponse {
+  string message = 1;
+}
