@@ -149,3 +149,6 @@ secrets/
 migrations
 **/migrations/**
 migrations/**
+.vscode
+**/.vscode/**
+.vscode/**
